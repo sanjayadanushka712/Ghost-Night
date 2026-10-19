@@ -74,6 +74,18 @@ def _remember_good(host, ip):
     GOOD_EXITS.write_text(json.dumps(g, indent=2))
 
 
+def _forget_good(host, ip):
+    if not host or not ip:
+        return
+    g = _good_exits()
+    lst = g.get(host) or []
+    if ip in lst:
+        lst.remove(ip)
+        g[host] = lst
+        GOOD_EXITS.write_text(json.dumps(g, indent=2))
+        ui.info(f'exit {ip} is now blocked too — removed from proven list')
+
+
 def _open_with_retry(mgr, args):
     if args.transport != 'tor':
         return mgr.open(args.target)
@@ -105,6 +117,8 @@ def _open_with_retry(mgr, args):
             ip = tor.get_ip()[0]
         except Exception:
             pass
+        if ip:
+            _forget_good(host, ip)
         ui.warn(f'blocked (HTTP {meta.get("status")}) via {label}' + (f' — exit {ip}' if ip else ''))
 
     ui.warn('all tor exit strategies blocked — falling back to direct connection (no proxy)')
