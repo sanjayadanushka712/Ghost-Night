@@ -26,18 +26,35 @@ def bootstrap_done():
         return False
 
 
-def write_config():
+def write_config(exit_nodes=None, strict=False):
     _ensure()
-    TORRC.write_text(
-        f'SocksPort {SOCKS_HOST}:{SOCKS_PORT}\n'
-        f'ControlPort {CTRL_HOST}:{CTRL_PORT}\n'
-        f'CookieAuthentication 1\n'
-        f'CookieAuthFile {DATA}/control_auth_cookie\n'
-        f'DataDirectory {DATA}\n'
-        f'Log notice file {LOG}\n'
-        f'ClientOnly 1\n'
-        f'AvoidDiskWrites 1\n'
-    )
+    lines = [
+        f'SocksPort {SOCKS_HOST}:{SOCKS_PORT}',
+        f'ControlPort {CTRL_HOST}:{CTRL_PORT}',
+        'CookieAuthentication 1',
+        f'CookieAuthFile {DATA}/control_auth_cookie',
+        f'DataDirectory {DATA}',
+        f'Log notice file {LOG}',
+        'ClientOnly 1',
+        'AvoidDiskWrites 1',
+    ]
+    if exit_nodes:
+        toks = []
+        for e in exit_nodes:
+            e = e.strip()
+            if e.count('.') == 3 and e.replace('.', '').isdigit():
+                toks.append(e)
+            else:
+                toks.append('{' + e + '}')
+        lines.append('ExitNodes ' + ' '.join(toks))
+        if strict:
+            lines.append('StrictNodes 1')
+    new = '\n'.join(lines) + '\n'
+    old = TORRC.read_text() if TORRC.exists() else None
+    changed = new != old
+    if changed:
+        TORRC.write_text(new)
+    return changed
 
 
 def is_running():
@@ -50,13 +67,14 @@ def is_running():
         return False
 
 
-def start(timeout=120):
-    if is_running() and bootstrap_done():
-        return
+def start(timeout=120, exit_nodes=None, strict=False):
+    changed = write_config(exit_nodes, strict)
     if is_running():
-        stop()
-        time.sleep(1)
-    write_config()
+        if changed or not bootstrap_done():
+            stop()
+            time.sleep(1)
+        else:
+            return
     LOG.unlink(missing_ok=True)
     with open(LOG, 'a') as err:
         p = subprocess.Popen(

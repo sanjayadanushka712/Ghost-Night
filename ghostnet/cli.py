@@ -7,6 +7,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from urllib.parse import urlparse
 
 from . import session, tor, ui
 from .log import event, tail
@@ -14,6 +15,8 @@ from .log import event, tail
 CONF = Path.home() / '.config' / 'ghostnet'
 GN_PID = CONF / 'gn.pid'
 STATE = CONF / 'state.json'
+GOOD_EXITS = CONF / 'good_exits.json'
+COUNTRY_POOL = ['us', 'de', 'nl', 'fr', 'ca', 'se', 'gb']
 DEFAULT_DETECT = (
     r'limit\s*(?:hit|reached|exceeded)|'
     r'you(?:\x27|’)?(?:ve| have)?\s*(?:reached|exceeded)\s+(?:your\s+)?(?:limit|quota)|'
@@ -51,24 +54,63 @@ def _proxy_for(args):
     return tor.socks_proxy()
 
 
-def _open_with_retry(mgr, args, max_tries=5):
-    meta = mgr.open(args.target)
-    tries = 0
-    while args.transport == 'tor' and tries < max_tries:
+def _good_exits():
+    try:
+        return json.loads(GOOD_EXITS.read_text())
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+
+def _remember_good(host, ip):
+    if not host or not ip:
+        return
+    CONF.mkdir(parents=True, exist_ok=True)
+    g = _good_exits()
+    lst = g.get(host) or []
+    if ip in lst:
+        lst.remove(ip)
+    lst.insert(0, ip)
+    g[host] = lst[:10]
+    GOOD_EXITS.write_text(json.dumps(g, indent=2))
+
+
+def _open_with_retry(mgr, args):
+    if args.transport != 'tor':
+        return mgr.open(args.target)
+
+    host = urlparse(args.target).hostname or args.target
+    good = (_good_exits().get(host) or [])[:3]
+    strategies = []
+    if good:
+        strategies.append((good, True, 'proven exits ' + ','.join(good)))
+    for c in COUNTRY_POOL:
+        strategies.append(([c], True, f'exit country {c.upper()}'))
+    strategies.append((None, False, 'any exit'))
+
+    meta = None
+    for nodes, strict, label in strategies:
+        if nodes is not None or label == 'any exit':
+            ui.info(f'tor: trying {label}')
+            tor.start(exit_nodes=nodes, strict=strict)
+        meta = mgr.open(args.target)
         blocked = meta.get('status') in (403, 429) or mgr.matches(r'Error: Forbidden|Access denied|403 Forbidden')
         if not blocked:
-            break
-        tries += 1
-        ui.warn(f'exit ip blocked (HTTP {meta.get("status")}) — rotating exit ({tries}/{max_tries})')
-        tor.newnym()
-        time.sleep(3)
-        meta = mgr.open(args.target)
-    if tries >= max_tries:
-        ui.warn('all tor exits blocked — falling back to direct connection (no proxy)')
-        mgr.proxy = None
-        args.transport = 'direct'
-        meta = mgr.open(args.target)
-    return meta
+            if nodes is not None:
+                ui.ok(f'connected via {label}')
+            ip = tor.get_ip()[0]
+            _remember_good(host, ip)
+            return meta
+        ip = None
+        try:
+            ip = tor.get_ip()[0]
+        except Exception:
+            pass
+        ui.warn(f'blocked (HTTP {meta.get("status")}) via {label}' + (f' — exit {ip}' if ip else ''))
+
+    ui.warn('all tor exit strategies blocked — falling back to direct connection (no proxy)')
+    mgr.proxy = None
+    args.transport = 'direct'
+    return mgr.open(args.target)
 
 
 def _run_session_loop(args, once=False):

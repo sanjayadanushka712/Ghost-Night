@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-1.0.0-46d746">
+  <img alt="version" src="https://img.shields.io/badge/version-1.1.0-46d746">
   <img alt="license" src="https://img.shields.io/badge/license-GPL--3.0-46d746">
   <img alt="platform" src="https://img.shields.io/badge/platform-Linux-lightgrey">
   <img alt="tor" src="https://img.shields.io/badge/transport-Tor%20%7C%20proxy%20%7C%20direct-46d746">
@@ -109,7 +109,14 @@ Every app signals "you're out" differently — pick the mode that fits:
 | silent block, no message | `gn go URL --no-watch` — plain sessions, rotate manually with `gn new` |
 | timer-based trial | `gn go URL --every 25m` — rotate on a clock, before expiry |
 
-Sites that block Tor datacenter IPs (Cloudflare-class) get automatic exit-IP retries (up to 5); if all exits are blocked, use `--transport direct` or your own proxy.
+Sites that block Tor datacenter IPs (Cloudflare-class) are handled by a built-in exit-strategy ladder — no VPN needed:
+
+1. **proven exits** — exits that previously got HTTP 200 on this site are remembered (`~/.config/ghostnet/good_exits.json`) and pinned via `ExitNodes`
+2. **country rotation** — cycles exit countries (US → DE → NL → FR → CA → SE → GB), since some pools are less aggressively blocked
+3. **any exit** — unrestricted Tor
+4. **direct fallback** — if every Tor strategy fails, switches to a direct connection and remembers it
+
+Each strategy change restarts the local Tor instance (~10–20s bootstrap), so the first connect on a heavily-blocking site can take a minute. Once a good exit is cached, later runs connect on the first try.
 
 ## All options
 
