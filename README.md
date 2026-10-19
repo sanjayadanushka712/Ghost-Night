@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-1.1.2-46d746">
+  <img alt="version" src="https://img.shields.io/badge/version-1.1.0-46d746">
   <img alt="license" src="https://img.shields.io/badge/license-GPL--3.0-46d746">
   <img alt="platform" src="https://img.shields.io/badge/platform-Linux-lightgrey">
   <img alt="tor" src="https://img.shields.io/badge/transport-Tor%20%7C%20proxy%20%7C%20direct-46d746">
@@ -154,24 +154,20 @@ gn new --target https://other-site.com       # switch sites
 
 ## Changelog
 
-### v1.1.2 — fast exit rotation
-- Tor config changes (exit country / proven pin) applied via **SIGHUP reload (~2s)** instead of full restart (~20s bootstrap)
-- `NEWNYM` throttled to Tor's 10s rate limit — fixes stale-circuit races where page traffic leaked through the previous exit
-- Proven-exit pin verified against the live exit IP before the page loads — accurate verdicts, no wrongful cache eviction
-
-### v1.1.1 — fix
-- `ExitNodes` entries must be comma-separated; Tor rejected the space-joined list (single-exit pins worked, multi-exit pins crashed Tor)
-
-### v1.1.0 — self-contained IP rotation
-- Exit-strategy ladder: proven exits → country rotation → any exit → direct fallback (remembered)
+### v1.1.0
+- Self-contained IP rotation — no VPN needed
+- Exit-strategy ladder: proven exits → country rotation → any exit → direct fallback
+- Tor config changes applied via SIGHUP reload (~2s, no re-bootstrap)
+- `NEWNYM` throttled to Tor's 10s rate limit — no stale-circuit leaks
+- Proven exits pinned only for sites that actually blocked us (403/429)
 - Blocked proven exits auto-removed from the cache
 - Limit detection asks before rotating (`rotate to a new identity now? [y/N]`)
-- Detects IP-keyed limits (instant re-limit on every fresh session) and explains why device rotation can't reset them
+- Detects IP-keyed limits and explains why device rotation can't reset them
 - `gn new` remembers transport/proxy from the last `gn go`
 - Generic site-agnostic limit phrases; `--no-watch` / `--detect` / `--every` modes
 
-### v1.0.0 — first release
-- Fresh IP (Tor/proxy/direct) + fresh browser fingerprint per session
+### v1.0.0
+- First release — fresh IP (Tor/proxy/direct) + fresh browser fingerprint per session
 - Limit watcher, `gn go/new/status/verify/off`, JSONL evidence log, green terminal UI
 
 ## Contributing
