@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-1.1.0-46d746">
+  <img alt="version" src="https://img.shields.io/badge/version-1.1.2-46d746">
   <img alt="license" src="https://img.shields.io/badge/license-GPL--3.0-46d746">
   <img alt="platform" src="https://img.shields.io/badge/platform-Linux-lightgrey">
   <img alt="tor" src="https://img.shields.io/badge/transport-Tor%20%7C%20proxy%20%7C%20direct-46d746">
@@ -116,7 +116,13 @@ Sites that block Tor datacenter IPs (Cloudflare-class) are handled by a built-in
 3. **any exit** — unrestricted Tor
 4. **direct fallback** — if every Tor strategy fails, switches to a direct connection and remembers it
 
-Each strategy change restarts the local Tor instance (~10–20s bootstrap), so the first connect on a heavily-blocking site can take a minute. Once a good exit is cached, later runs connect on the first try.
+Details of how the ladder stays fast and accurate:
+
+- Strategy changes are applied via a **Tor config reload (SIGHUP, ~2s)** — no restart, no re-bootstrap
+- `NEWNYM` is throttled to Tor's 10s rate limit, so page traffic never leaks through a stale circuit
+- The proven exit is **verified against the live exit IP before the page loads**, so a blocked/not-blocked verdict is always accurate
+- Exits that later get blocked are **auto-removed** from the proven list
+- Once a good exit is cached, later runs connect on the first try
 
 ## All options
 
@@ -142,9 +148,31 @@ gn new --target https://other-site.com       # switch sites
 
 ## Files
 
-- `~/.config/ghostnet/` — tor config, control cookie, logs
+- `~/.config/ghostnet/` — tor config, control cookie, logs, proven-exit cache (`good_exits.json`)
 - `~/.local/share/ghostnet/sessions/` — live browser profiles (deleted on rotate)
 - `~/.local/share/ghostnet/log.jsonl` — rotation history (IP, fingerprint, timestamp)
+
+## Changelog
+
+### v1.1.2 — fast exit rotation
+- Tor config changes (exit country / proven pin) applied via **SIGHUP reload (~2s)** instead of full restart (~20s bootstrap)
+- `NEWNYM` throttled to Tor's 10s rate limit — fixes stale-circuit races where page traffic leaked through the previous exit
+- Proven-exit pin verified against the live exit IP before the page loads — accurate verdicts, no wrongful cache eviction
+
+### v1.1.1 — fix
+- `ExitNodes` entries must be comma-separated; Tor rejected the space-joined list (single-exit pins worked, multi-exit pins crashed Tor)
+
+### v1.1.0 — self-contained IP rotation
+- Exit-strategy ladder: proven exits → country rotation → any exit → direct fallback (remembered)
+- Blocked proven exits auto-removed from the cache
+- Limit detection asks before rotating (`rotate to a new identity now? [y/N]`)
+- Detects IP-keyed limits (instant re-limit on every fresh session) and explains why device rotation can't reset them
+- `gn new` remembers transport/proxy from the last `gn go`
+- Generic site-agnostic limit phrases; `--no-watch` / `--detect` / `--every` modes
+
+### v1.0.0 — first release
+- Fresh IP (Tor/proxy/direct) + fresh browser fingerprint per session
+- Limit watcher, `gn go/new/status/verify/off`, JSONL evidence log, green terminal UI
 
 ## Contributing
 
