@@ -51,10 +51,10 @@ def _proxy_for(args):
     return tor.socks_proxy()
 
 
-def _open_with_retry(mgr, target, transport, max_tries=5):
-    meta = mgr.open(target)
+def _open_with_retry(mgr, args, max_tries=5):
+    meta = mgr.open(args.target)
     tries = 0
-    while transport == 'tor' and tries < max_tries:
+    while args.transport == 'tor' and tries < max_tries:
         blocked = meta.get('status') in (403, 429) or mgr.matches(r'Error: Forbidden|Access denied|403 Forbidden')
         if not blocked:
             break
@@ -62,9 +62,12 @@ def _open_with_retry(mgr, target, transport, max_tries=5):
         ui.warn(f'exit ip blocked (HTTP {meta.get("status")}) — rotating exit ({tries}/{max_tries})')
         tor.newnym()
         time.sleep(3)
-        meta = mgr.open(target)
+        meta = mgr.open(args.target)
     if tries >= max_tries:
-        ui.warn('still blocked after 5 exits — site likely blocks all tor exits; use --transport direct')
+        ui.warn('all tor exits blocked — falling back to direct connection (no proxy)')
+        mgr.proxy = None
+        args.transport = 'direct'
+        meta = mgr.open(args.target)
     return meta
 
 
@@ -84,7 +87,7 @@ def _run_session_loop(args, once=False):
         if args.transport == 'tor':
             tor.newnym()
             time.sleep(2)
-        meta = _open_with_retry(mgr, args.target, args.transport)
+        meta = _open_with_retry(mgr, args)
         state['last'] = time.time()
         ip = tor.get_ip()[0] if args.transport == 'tor' else None
         _save_state(sid=meta['sid'], target=args.target, since=state['last'], proxy=proxy,
@@ -119,8 +122,16 @@ def _run_session_loop(args, once=False):
                     ui.info(f'pattern matched ({args.detect}) — rotating')
                     rotate('detected')
                 else:
-                    ui.warn('limit message detected — session closed')
-                    ui.info("run 'gn new' to continue as a brand-new user on the same site")
+                    ui.warn('limit message detected')
+                    try:
+                        ans = input(ui.c(ui.GREEN, '  rotate to a new identity now? [y/N] ')).strip().lower()
+                    except EOFError:
+                        ans = ''
+                    if ans in ('y', 'yes'):
+                        ui.info('rotating to a new identity')
+                        rotate('limit-prompt')
+                        continue
+                    ui.info("session closed — run 'gn new' to continue as a brand-new user")
                     break
     except KeyboardInterrupt:
         print()
@@ -166,7 +177,7 @@ def cmd_new(args):
         tor.newnym()
         time.sleep(2)
     mgr = session.Manager(headless=args.headless, proxy=proxy, channel='chrome' if not args.firefox else 'firefox')
-    meta = _open_with_retry(mgr, target, args.transport)
+    meta = _open_with_retry(mgr, args)
     ip = tor.get_ip()[0] if args.transport == 'tor' else None
     _save_state(sid=meta['sid'], target=target, since=time.time(), proxy=proxy,
                 reason='manual', ip=ip, transport=args.transport)
