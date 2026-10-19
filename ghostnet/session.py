@@ -64,6 +64,7 @@ class Manager:
         self.channel = channel
         self.pw = None
         self.context = None
+        self._closed = True
         self.sid = None
         self.path = None
         self.started = None
@@ -105,6 +106,8 @@ class Manager:
         if self.proxy:
             kwargs['proxy'] = {'server': self.proxy}
         ctx = self._pw().chromium.launch_persistent_context(**kwargs)
+        self._closed = False
+        ctx.on('close', lambda _: setattr(self, '_closed', True))
         ctx.add_init_script(NOISE.replace('__SEED__', str(seed)))
         page = ctx.pages[0] if ctx.pages else ctx.new_page()
         if target:
@@ -133,7 +136,7 @@ class Manager:
         return bool(re.search(pattern, html, re.I | re.S))
 
     def is_open(self):
-        return bool(self.context and self.context.is_connected())
+        return bool(self.context and not self._closed)
 
     def close(self, delete=True):
         ctx, path = self.context, self.path
