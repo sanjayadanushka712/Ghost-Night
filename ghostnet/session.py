@@ -110,8 +110,10 @@ class Manager:
         ctx.on('close', lambda _: setattr(self, '_closed', True))
         ctx.add_init_script(NOISE.replace('__SEED__', str(seed)))
         page = ctx.pages[0] if ctx.pages else ctx.new_page()
+        status = None
         if target:
-            page.goto(target, wait_until='domcontentloaded', timeout=60000)
+            resp = page.goto(target, wait_until='domcontentloaded', timeout=60000)
+            status = resp.status if resp else None
         self.context = ctx
         self.sid = sid
         self.path = path
@@ -121,6 +123,7 @@ class Manager:
             'sid': sid, 'ua': ua, 'platform': platform,
             'viewport': f'{w}x{h}', 'tz': tz, 'locale': locale,
             'seed': seed, 'target': target, 'proxy': self.proxy,
+            'status': status,
         }
         (path / 'ghostnet.json').write_text(json.dumps(meta))
         return meta

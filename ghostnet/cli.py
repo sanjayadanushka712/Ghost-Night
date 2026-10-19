@@ -43,6 +43,23 @@ def _proxy_for(args):
     return tor.socks_proxy()
 
 
+def _open_with_retry(mgr, target, transport, max_tries=5):
+    meta = mgr.open(target)
+    tries = 0
+    while transport == 'tor' and tries < max_tries:
+        blocked = meta.get('status') in (403, 429) or mgr.matches(r'Error: Forbidden|Access denied|403 Forbidden')
+        if not blocked:
+            break
+        tries += 1
+        print(f'[gn] exit ip blocked (HTTP {meta.get("status")}); rotating exit... ({tries}/{max_tries})')
+        tor.newnym()
+        time.sleep(3)
+        meta = mgr.open(target)
+    if tries >= max_tries:
+        print('[gn] warning: still blocked after 5 exits — site likely blocks all tor exits; use --transport direct')
+    return meta
+
+
 def _run_session_loop(args, once=False):
     CONF.mkdir(parents=True, exist_ok=True)
     GN_PID.write_text(str(os.getpid()))
@@ -59,7 +76,7 @@ def _run_session_loop(args, once=False):
         if args.transport == 'tor':
             tor.newnym()
             time.sleep(2)
-        meta = mgr.open(args.target)
+        meta = _open_with_retry(mgr, args.target, args.transport)
         state['last'] = time.time()
         ip = tor.get_ip()[0] if args.transport == 'tor' else None
         _save_state(sid=meta['sid'], target=args.target, since=state['last'], proxy=proxy, reason=reason, ip=ip)
@@ -132,7 +149,7 @@ def cmd_new(args):
         tor.newnym()
         time.sleep(2)
     mgr = session.Manager(headless=args.headless, proxy=proxy, channel='chrome' if not args.firefox else 'firefox')
-    meta = mgr.open(target)
+    meta = _open_with_retry(mgr, target, args.transport)
     ip = tor.get_ip()[0] if args.transport == 'tor' else None
     _save_state(sid=meta['sid'], target=args.target, since=time.time(), proxy=proxy, reason='manual', ip=ip)
     event('rotate', reason='manual', sid=meta['sid'], target=args.target, ip=ip,
