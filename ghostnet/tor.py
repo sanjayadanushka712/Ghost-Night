@@ -67,14 +67,28 @@ def is_running():
         return False
 
 
+def _reload():
+    try:
+        os.kill(int(PIDFILE.read_text().strip()), signal.SIGHUP)
+        time.sleep(2)
+        try:
+            newnym()
+        except Exception:
+            pass
+        return True
+    except (ValueError, ProcessLookupError, PermissionError, FileNotFoundError):
+        return False
+
+
 def start(timeout=120, exit_nodes=None, strict=False):
     changed = write_config(exit_nodes, strict)
+    if is_running() and bootstrap_done():
+        if changed:
+            _reload()
+        return
     if is_running():
-        if changed or not bootstrap_done():
-            stop()
-            time.sleep(1)
-        else:
-            return
+        stop()
+        time.sleep(1)
     LOG.unlink(missing_ok=True)
     with open(LOG, 'a') as err:
         p = subprocess.Popen(
@@ -135,8 +149,16 @@ def _control(cmds):
         s.close()
 
 
+_LAST_NEWNYM = 0.0
+
+
 def newnym():
+    global _LAST_NEWNYM
+    wait = 11.0 - (time.time() - _LAST_NEWNYM)
+    if wait > 0:
+        time.sleep(wait)
     _control(['SIGNAL NEWNYM'])
+    _LAST_NEWNYM = time.time()
 
 
 def socks_proxy():

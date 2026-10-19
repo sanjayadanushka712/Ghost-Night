@@ -104,6 +104,13 @@ def _open_with_retry(mgr, args):
         if nodes is not None or label == 'any exit':
             ui.info(f'tor: trying {label}')
             tor.start(exit_nodes=nodes, strict=strict)
+        if nodes and all(n.replace('.', '').isdigit() for n in nodes):
+            deadline = time.time() + 15
+            while time.time() < deadline:
+                cur = tor.get_ip()[0]
+                if cur in nodes:
+                    break
+                time.sleep(2)
         meta = mgr.open(args.target)
         blocked = meta.get('status') in (403, 429) or mgr.matches(r'Error: Forbidden|Access denied|403 Forbidden')
         if not blocked:
