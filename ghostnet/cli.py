@@ -16,6 +16,7 @@ CONF = Path.home() / '.config' / 'ghostnet'
 GN_PID = CONF / 'gn.pid'
 STATE = CONF / 'state.json'
 GOOD_EXITS = CONF / 'good_exits.json'
+BLOCKED_HOSTS = CONF / 'blocked_hosts.json'
 COUNTRY_POOL = ['us', 'de', 'nl', 'fr', 'ca', 'se', 'gb']
 DEFAULT_DETECT = (
     r'limit\s*(?:hit|reached|exceeded)|'
@@ -61,8 +62,25 @@ def _good_exits():
         return {}
 
 
+def _blocked_hosts():
+    try:
+        return set(json.loads(BLOCKED_HOSTS.read_text()))
+    except (FileNotFoundError, json.JSONDecodeError):
+        return set()
+
+
+def _mark_blocked(host):
+    if not host:
+        return
+    CONF.mkdir(parents=True, exist_ok=True)
+    h = _blocked_hosts()
+    if host not in h:
+        h.add(host)
+        BLOCKED_HOSTS.write_text(json.dumps(sorted(h), indent=2))
+
+
 def _remember_good(host, ip):
-    if not host or not ip:
+    if not host or not ip or host not in _blocked_hosts():
         return
     CONF.mkdir(parents=True, exist_ok=True)
     g = _good_exits()
@@ -93,11 +111,14 @@ def _open_with_retry(mgr, args):
     host = urlparse(args.target).hostname or args.target
     good = (_good_exits().get(host) or [])[:3]
     strategies = []
-    if good:
-        strategies.append((good, True, 'proven exits ' + ','.join(good)))
-    for c in COUNTRY_POOL:
-        strategies.append(([c], True, f'exit country {c.upper()}'))
-    strategies.append((None, False, 'any exit'))
+    if host in _blocked_hosts():
+        if good:
+            strategies.append((good, True, 'proven exits ' + ','.join(good)))
+        for c in COUNTRY_POOL:
+            strategies.append(([c], True, f'exit country {c.upper()}'))
+        strategies.append((None, False, 'any exit'))
+    else:
+        strategies.append((None, False, 'any exit'))
 
     meta = None
     for nodes, strict, label in strategies:
@@ -119,6 +140,15 @@ def _open_with_retry(mgr, args):
             ip = tor.get_ip()[0]
             _remember_good(host, ip)
             return meta
+        _mark_blocked(host)
+        if label == 'any exit' and not good:
+            good = (_good_exits().get(host) or [])[:3]
+            rest = []
+            if good:
+                rest.append((good, True, 'proven exits ' + ','.join(good)))
+            for c in COUNTRY_POOL:
+                rest.append(([c], True, f'exit country {c.upper()}'))
+            strategies.extend(rest)
         ip = None
         try:
             ip = tor.get_ip()[0]
