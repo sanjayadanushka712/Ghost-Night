@@ -14,7 +14,15 @@ from .log import event, tail
 CONF = Path.home() / '.config' / 'ghostnet'
 GN_PID = CONF / 'gn.pid'
 STATE = CONF / 'state.json'
-DEFAULT_DETECT = r'limit hit|no credits|upgrade your subscription|out of credits|quota exceeded|no remaining credits'
+DEFAULT_DETECT = (
+    r'limit\s*(?:hit|reached|exceeded)|'
+    r'you(?:\x27|’)?(?:ve| have)?\s*(?:reached|exceeded)\s+(?:your\s+)?(?:limit|quota)|'
+    r'(?:no|out of|no remaining)\s+credits|'
+    r'upgrade (?:your subscription|to continue)|'
+    r'quota exceeded|usage limit|rate limit|too many requests|'
+    r'free trial (?:ended|expired)|credits?\s+(?:exceeded|exhausted)|'
+    r'payment required|no (?:more|remaining) (?:tries|attempts|uses)'
+)
 
 
 def parse_every(s):
@@ -87,7 +95,10 @@ def _run_session_loop(args, once=False):
             ui.ip_line(ip)
 
     interval = parse_every(args.every) if args.every else None
-    watch = args.detect if args.detect else (DEFAULT_DETECT if not once else None)
+    if getattr(args, 'no_watch', False):
+        watch = None
+    else:
+        watch = args.detect if args.detect else (DEFAULT_DETECT if not once else None)
     rotate('start')
     if once:
         return mgr, rotate, state
@@ -248,6 +259,7 @@ def main(argv=None):
     go.add_argument('target', help='target URL')
     go.add_argument('--every', help='auto-rotate on interval, e.g. 25m, 90s, 1h')
     go.add_argument('--detect', help='regex watched on the page; rotate when it matches')
+    go.add_argument('--no-watch', action='store_true', help='disable limit-message watching (plain fresh sessions)')
     go.add_argument('--transport', choices=['tor', 'proxy', 'direct'], default='tor')
     go.add_argument('--proxy', help='custom proxy URL for --transport proxy')
     go.add_argument('--headless', action='store_true', help='run browser without window')

@@ -28,10 +28,10 @@ Requires: Linux, `tor`, `python-playwright` (uses your installed Chrome), `curl`
 
 ## Quick start
 
-The everyday flow — no flags needed:
+ghostnet is **site-agnostic** — use it against any web app during a pentest. The everyday flow:
 
 ```bash
-gn go https://site.com      # open site as a device; use it normally (log in, work)
+gn go https://site-a.com    # open site as a device; use it normally (log in, work)
                             # when the page shows a limit message, session auto-stops
 gn new                      # continue as a brand-new user on the same site
                             # (fresh device identity, same URL — just log in/use again)
@@ -40,20 +40,29 @@ gn status                   # tor, current session, recent events
 gn off                      # kill everything, clean up profiles
 ```
 
-`gn go` always watches for common limit messages ("limit hit", "no credits", "upgrade", "quota exceeded", ...) and closes itself when one appears — then `gn new` gives you a clean identity on the same site.
+### Different sites, different limit behavior — pick per site
+
+Every application signals "you're out" differently. ghostnet handles all of them:
+
+| site behavior | what to run |
+|---|---|
+| shows text like "limit reached" / "no credits" / "upgrade to continue" | `gn go URL` — default watcher covers common limit phrases and stops itself |
+| custom message / modal / redirect wording | `gn go URL --detect "your site's wording"` — rotates automatically on match instead of stopping |
+| no clear limit text (silent block, spinner, blank state) | `gn go URL --no-watch` — plain fresh sessions, no watching; rotate manually with `gn new` |
+| timer-based trial | `gn go URL --every 25m` — rotate on a clock, before expiry |
+
+The default watcher matches a broad generic set: *limit hit/reached/exceeded, usage limit, rate limit, too many requests, quota exceeded, no/out of credits, upgrade to continue, free trial ended, payment required, ...* — tuned for general use, not one site.
 
 ### Verify / extras
 
 ```bash
 gn verify                                # check tor works (real ip vs tor exit ip)
-gn go https://site --every 25m           # also auto-rotate on a timer
-gn go https://site --detect "regex"      # auto-rotate on your own pattern instead of stopping
-gn go https://site --once                # single session, no limit watching
+gn go https://site --once                # single session, no watching at all
 gn go https://site --transport proxy --proxy socks5://127.0.0.1:1080   # your own proxy
 gn go https://site --transport direct    # no proxy (cookie/fingerprint rotation only)
 gn go https://site --firefox             # Firefox instead of Chrome
 gn go https://site --keep-profiles       # keep profiles on disk after rotate
-gn new --target https://other.com        # override remembered site
+gn new --target https://other-site.com   # switch to a different site entirely
 ```
 
 ## How a rotation works
