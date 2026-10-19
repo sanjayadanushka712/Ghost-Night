@@ -1,0 +1,233 @@
+import argparse
+import json
+import os
+import shutil
+import signal
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+from . import session, tor
+from .log import event, tail
+
+CONF = Path.home() / '.config' / 'ghostnet'
+GN_PID = CONF / 'gn.pid'
+STATE = CONF / 'state.json'
+
+
+def parse_every(s):
+    s = str(s).strip().lower()
+    units = {'s': 1, 'm': 60, 'h': 3600}
+    if s and s[-1] in units:
+        return int(float(s[:-1]) * units[s[-1]])
+    return int(s)
+
+
+def _save_state(**kw):
+    CONF.mkdir(parents=True, exist_ok=True)
+    data = json.loads(STATE.read_text()) if STATE.exists() else {}
+    data.update(kw)
+    STATE.write_text(json.dumps(data, indent=2))
+
+
+def _proxy_for(args):
+    if args.transport == 'direct':
+        return None
+    if args.transport == 'proxy':
+        if not args.proxy:
+            sys.exit('error: --transport proxy requires --proxy URL (e.g. socks5://127.0.0.1:1080)')
+        return args.proxy
+    tor.start()
+    return tor.socks_proxy()
+
+
+def _run_session_loop(args, once=False):
+    CONF.mkdir(parents=True, exist_ok=True)
+    GN_PID.write_text(str(os.getpid()))
+
+    def on_term(*_):
+        raise KeyboardInterrupt
+
+    signal.signal(signal.SIGTERM, on_term)
+    proxy = _proxy_for(args)
+    mgr = session.Manager(headless=args.headless, proxy=proxy, keep_profiles=args.keep_profiles)
+    state = {'last': time.time()}
+
+    def rotate(reason):
+        if args.transport == 'tor':
+            tor.newnym()
+            time.sleep(2)
+        meta = mgr.open(args.target)
+        state['last'] = time.time()
+        ip = tor.get_ip()[0] if args.transport == 'tor' else None
+        _save_state(sid=meta['sid'], target=args.target, since=state['last'], proxy=proxy, reason=reason, ip=ip)
+        event('rotate', reason=reason, sid=meta['sid'], target=args.target, ip=ip,
+              viewport=meta['viewport'], tz=meta['tz'], platform=meta['platform'])
+        print(f"[gn] session {meta['sid']}  {meta['platform']}  {meta['viewport']}  {meta['tz']}  {meta['locale']}")
+        if ip:
+            print(f'[gn] exit ip: {ip}')
+
+    interval = parse_every(args.every) if args.every else None
+    rotate('start')
+    if once:
+        return mgr, rotate, state
+
+    try:
+        while True:
+            time.sleep(5)
+            if not mgr.is_open():
+                rotate('browser-closed')
+                continue
+            if interval and time.time() - state['last'] >= interval:
+                print(f'[gn] timer fired after {args.every}; rotating')
+                rotate('timer')
+                continue
+            if args.detect and mgr.matches(args.detect):
+                print(f'[gn] pattern matched ({args.detect}); rotating')
+                rotate('detected')
+    except KeyboardInterrupt:
+        print('\n[gn] stopping')
+    finally:
+        mgr.stop()
+        GN_PID.unlink(missing_ok=True)
+        _save_state(sid=None, since=None)
+
+
+def cmd_go(args):
+    if not args.target.startswith(('http://', 'https://')):
+        sys.exit('error: target must be a full URL (https://...)')
+    print(f'[gn] go -> {args.target}  (transport={args.transport})')
+    if args.once and not args.every and not args.detect:
+        mgr, _, _ = _run_session_loop(args, once=True)
+        print('[gn] single session running; close the browser window or Ctrl+C to exit')
+        try:
+            while mgr.is_open():
+                time.sleep(1)
+        except KeyboardInterrupt:
+            pass
+        finally:
+            mgr.stop()
+            GN_PID.unlink(missing_ok=True)
+        return
+    _run_session_loop(args)
+
+
+def cmd_new(args):
+    CONF.mkdir(parents=True, exist_ok=True)
+    proxy = _proxy_for(args)
+    if args.transport == 'tor':
+        tor.newnym()
+        time.sleep(2)
+    mgr = session.Manager(headless=args.headless, proxy=proxy, channel='chrome' if not args.firefox else 'firefox')
+    meta = mgr.open(args.target)
+    ip = tor.get_ip()[0] if args.transport == 'tor' else None
+    _save_state(sid=meta['sid'], target=args.target, since=time.time(), proxy=proxy, reason='manual', ip=ip)
+    event('rotate', reason='manual', sid=meta['sid'], target=args.target, ip=ip,
+          viewport=meta['viewport'], tz=meta['tz'], platform=meta['platform'])
+    print(f"[gn] new session {meta['sid']}  {meta['platform']}  {meta['viewport']}  {meta['tz']}")
+    if ip:
+        print(f'[gn] exit ip: {ip}')
+    if args.headless:
+        mgr.stop()
+        return
+    print('[gn] close the browser window or Ctrl+C to exit')
+    try:
+        while mgr.is_open():
+            time.sleep(1)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        mgr.stop()
+        GN_PID.unlink(missing_ok=True)
+
+
+def cmd_status(args):
+    if tor.is_running():
+        pid = tor.PIDFILE.read_text().strip()
+        print(f'tor: running (pid {pid}), bootstrap {"done" if tor.bootstrap_done() else "in progress"}')
+    else:
+        print('tor: stopped')
+    st = json.loads(STATE.read_text()) if STATE.exists() else {}
+    print(f"session: {st.get('sid') or '-'}  target={st.get('target') or '-'}  ip={st.get('ip') or '-'}")
+    n = len(list(session.SESSIONS.glob('*'))) if session.SESSIONS.exists() else 0
+    print(f'profiles on disk: {n}')
+    print(f'gn loop: {"running (pid " + GN_PID.read_text().strip() + ")" if GN_PID.exists() else "not running"}')
+    events = tail(5)
+    if events:
+        print('recent events:')
+        for e in events:
+            print(' ', json.dumps(e))
+
+
+def cmd_verify(args):
+    real = tor.real_ip()
+    print(f'real ip:        {real}')
+    if not tor.is_running():
+        print('starting tor...')
+        tor.start()
+    ip, is_tor = tor.get_ip()
+    print(f'tor exit ip:    {ip}')
+    print(f'tor verified:   {is_tor}')
+    if ip and real and ip == real:
+        print('WARNING: exit ip equals real ip — traffic is NOT going through tor')
+
+
+def cmd_off(args):
+    killed = False
+    if GN_PID.exists():
+        try:
+            os.kill(int(GN_PID.read_text().strip()), signal.SIGTERM)
+            killed = True
+        except (ValueError, ProcessLookupError):
+            pass
+        GN_PID.unlink(missing_ok=True)
+        time.sleep(1)
+    subprocess.run(['pkill', '-f', str(session.SESSIONS)], capture_output=True)
+    if session.SESSIONS.exists() and not args.keep_profiles:
+        shutil.rmtree(session.SESSIONS, ignore_errors=True)
+        session.SESSIONS.mkdir(parents=True, exist_ok=True)
+    tor.stop()
+    STATE.unlink(missing_ok=True)
+    print(f"[gn] off — {'loop stopped, ' if killed else ''}browsers closed, profiles {'kept' if args.keep_profiles else 'removed'}, tor stopped")
+
+
+def main(argv=None):
+    p = argparse.ArgumentParser(
+        prog='gn',
+        description='ghostnet — anonymous device rotation: fresh IP + fresh browser fingerprint per session',
+    )
+    sub = p.add_subparsers(dest='cmd', required=True)
+
+    go = sub.add_parser('go', help='start rotating sessions on a target (the main command)')
+    go.add_argument('target', help='target URL')
+    go.add_argument('--every', help='auto-rotate on interval, e.g. 25m, 90s, 1h')
+    go.add_argument('--detect', help='regex watched on the page; rotate when it matches')
+    go.add_argument('--transport', choices=['tor', 'proxy', 'direct'], default='tor')
+    go.add_argument('--proxy', help='custom proxy URL for --transport proxy')
+    go.add_argument('--headless', action='store_true', help='run browser without window')
+    go.add_argument('--once', action='store_true', help='single session, no auto-rotate loop')
+    go.add_argument('--keep-profiles', action='store_true', help='do not delete profiles on rotate')
+    go.add_argument('--firefox', action='store_true', help='use Firefox channel instead of Chrome')
+    go.set_defaults(func=cmd_go)
+
+    new = sub.add_parser('new', help='one-shot: new IP + fresh device session')
+    new.add_argument('--target', default=None, help='URL to open')
+    new.add_argument('--transport', choices=['tor', 'proxy', 'direct'], default='tor')
+    new.add_argument('--proxy', help='custom proxy URL for --transport proxy')
+    new.add_argument('--headless', action='store_true')
+    new.add_argument('--firefox', action='store_true')
+    new.set_defaults(func=cmd_new)
+
+    st = sub.add_parser('status', help='show current state')
+    st.set_defaults(func=cmd_status)
+
+    ver = sub.add_parser('verify', help='check tor connection and exit ip')
+    ver.set_defaults(func=cmd_verify)
+
+    off = sub.add_parser('off', help='stop everything and clean up')
+    off.add_argument('--keep-profiles', action='store_true')
+    off.set_defaults(func=cmd_off)
+
+    args = p.parse_args(argv)
+    args.func(args)
