@@ -1,5 +1,7 @@
 # ghostnet
 
+<p align="center"><img src="assets/ghostnet.png" width="160" alt="ghostnet logo"></p>
+
 **Anonymous device rotation for the internet — new IP, new browser fingerprint, fresh session on demand.**
 
 `ghostnet` (`gn`) makes your machine appear as a brand-new device to any web app: it rotates your public IP through Tor and launches each session in a completely fresh, fingerprint-randomized browser context. When a session hits a limit or gets flagged, a new identity takes its place in seconds — no manual cookie clearing, no VPN juggling.

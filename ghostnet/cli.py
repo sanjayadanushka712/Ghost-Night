@@ -8,7 +8,7 @@ import sys
 import time
 from pathlib import Path
 
-from . import session, tor
+from . import session, tor, ui
 from .log import event, tail
 
 CONF = Path.home() / '.config' / 'ghostnet'
@@ -51,12 +51,12 @@ def _open_with_retry(mgr, target, transport, max_tries=5):
         if not blocked:
             break
         tries += 1
-        print(f'[gn] exit ip blocked (HTTP {meta.get("status")}); rotating exit... ({tries}/{max_tries})')
+        ui.warn(f'exit ip blocked (HTTP {meta.get("status")}) — rotating exit ({tries}/{max_tries})')
         tor.newnym()
         time.sleep(3)
         meta = mgr.open(target)
     if tries >= max_tries:
-        print('[gn] warning: still blocked after 5 exits — site likely blocks all tor exits; use --transport direct')
+        ui.warn('still blocked after 5 exits — site likely blocks all tor exits; use --transport direct')
     return meta
 
 
@@ -82,9 +82,9 @@ def _run_session_loop(args, once=False):
         _save_state(sid=meta['sid'], target=args.target, since=state['last'], proxy=proxy, reason=reason, ip=ip)
         event('rotate', reason=reason, sid=meta['sid'], target=args.target, ip=ip,
               viewport=meta['viewport'], tz=meta['tz'], platform=meta['platform'])
-        print(f"[gn] session {meta['sid']}  {meta['platform']}  {meta['viewport']}  {meta['tz']}  {meta['locale']}")
+        ui.session_line(meta)
         if ip:
-            print(f'[gn] exit ip: {ip}')
+            ui.ip_line(ip)
 
     interval = parse_every(args.every) if args.every else None
     watch = args.detect if args.detect else (DEFAULT_DETECT if not once else None)
@@ -99,19 +99,20 @@ def _run_session_loop(args, once=False):
                 rotate('browser-closed')
                 continue
             if interval and time.time() - state['last'] >= interval:
-                print(f'[gn] timer fired after {args.every}; rotating')
+                ui.info(f'timer fired after {args.every} — rotating')
                 rotate('timer')
                 continue
             if watch and mgr.matches(watch):
                 if args.detect:
-                    print(f'[gn] pattern matched ({args.detect}); rotating')
+                    ui.info(f'pattern matched ({args.detect}) — rotating')
                     rotate('detected')
                 else:
-                    print('[gn] limit message detected — session closed.')
-                    print("[gn] run 'gn new' to continue as a brand-new user on the same site.")
+                    ui.warn('limit message detected — session closed')
+                    ui.info("run 'gn new' to continue as a brand-new user on the same site")
                     break
     except KeyboardInterrupt:
-        print('\n[gn] stopping')
+        print()
+        ui.info('stopping')
     finally:
         mgr.stop()
         GN_PID.unlink(missing_ok=True)
@@ -121,10 +122,11 @@ def _run_session_loop(args, once=False):
 def cmd_go(args):
     if not args.target.startswith(('http://', 'https://')):
         sys.exit('error: target must be a full URL (https://...)')
-    print(f'[gn] go -> {args.target}  (transport={args.transport})')
+    ui.banner()
+    ui.step(f'{ui.c(ui.BOLD, args.target)}   ' + ui.c(ui.DIM, f'transport={args.transport}'))
     if args.once and not args.every and not args.detect:
         mgr, _, _ = _run_session_loop(args, once=True)
-        print('[gn] single session running; close the browser window or Ctrl+C to exit')
+        ui.info('single session running — close the browser window or Ctrl+C to exit')
         try:
             while mgr.is_open():
                 time.sleep(1)
@@ -151,17 +153,17 @@ def cmd_new(args):
     mgr = session.Manager(headless=args.headless, proxy=proxy, channel='chrome' if not args.firefox else 'firefox')
     meta = _open_with_retry(mgr, target, args.transport)
     ip = tor.get_ip()[0] if args.transport == 'tor' else None
-    _save_state(sid=meta['sid'], target=args.target, since=time.time(), proxy=proxy, reason='manual', ip=ip)
-    event('rotate', reason='manual', sid=meta['sid'], target=args.target, ip=ip,
+    _save_state(sid=meta['sid'], target=target, since=time.time(), proxy=proxy, reason='manual', ip=ip)
+    event('rotate', reason='manual', sid=meta['sid'], target=target, ip=ip,
           viewport=meta['viewport'], tz=meta['tz'], platform=meta['platform'])
-    print(f"[gn] new session {meta['sid']}  {meta['platform']}  {meta['viewport']}  {meta['tz']}")
-    print(f'[gn] new user on {target}')
+    ui.step('new user on ' + ui.c(ui.BOLD, target))
+    ui.session_line(meta)
     if ip:
-        print(f'[gn] exit ip: {ip}')
+        ui.ip_line(ip)
     if args.headless:
         mgr.stop()
         return
-    print('[gn] close the browser window or Ctrl+C to exit')
+    ui.info('close the browser window or Ctrl+C to exit')
     try:
         while mgr.is_open():
             time.sleep(1)
@@ -175,32 +177,42 @@ def cmd_new(args):
 def cmd_status(args):
     if tor.is_running():
         pid = tor.PIDFILE.read_text().strip()
-        print(f'tor: running (pid {pid}), bootstrap {"done" if tor.bootstrap_done() else "in progress"}')
+        boot = 'done' if tor.bootstrap_done() else 'in progress'
+        tor_row = (f'running · pid {pid} · bootstrap {boot}', ui.GREEN)
     else:
-        print('tor: stopped')
+        tor_row = ('stopped', ui.DIM)
     st = json.loads(STATE.read_text()) if STATE.exists() else {}
-    print(f"session: {st.get('sid') or '-'}  target={st.get('target') or '-'}  ip={st.get('ip') or '-'}")
     n = len(list(session.SESSIONS.glob('*'))) if session.SESSIONS.exists() else 0
-    print(f'profiles on disk: {n}')
-    print(f'gn loop: {"running (pid " + GN_PID.read_text().strip() + ")" if GN_PID.exists() else "not running"}')
+    loop = f"running · pid {GN_PID.read_text().strip()}" if GN_PID.exists() else 'not running'
+    ui.panel('ghostnet', [
+        ('tor', tor_row[0], tor_row[1]),
+        ('session', st.get('sid') or '-', ui.BRIGHT if st.get('sid') else None),
+        ('target', st.get('target') or '-', None),
+        ('exit ip', st.get('ip') or '-', ui.BRIGHT if st.get('ip') else None),
+        ('loop', loop, ui.GREEN if GN_PID.exists() else ui.DIM),
+        ('profiles', n, None),
+    ])
     events = tail(5)
     if events:
-        print('recent events:')
+        ui.info('recent events')
         for e in events:
-            print(' ', json.dumps(e))
+            print(ui.c(ui.DIM, '   ') + json.dumps(e))
 
 
 def cmd_verify(args):
     real = tor.real_ip()
-    print(f'real ip:        {real}')
+    ui.step('real ip        ' + ui.c(ui.BRIGHT, str(real)))
     if not tor.is_running():
-        print('starting tor...')
+        ui.info('starting tor...')
         tor.start()
     ip, is_tor = tor.get_ip()
-    print(f'tor exit ip:    {ip}')
-    print(f'tor verified:   {is_tor}')
+    ui.step('tor exit ip    ' + ui.c(ui.BRIGHT, str(ip)))
+    if is_tor:
+        ui.ok('tor verified — traffic is going through the tor network')
+    else:
+        ui.warn('tor not verified')
     if ip and real and ip == real:
-        print('WARNING: exit ip equals real ip — traffic is NOT going through tor')
+        ui.err('exit ip equals real ip — traffic is NOT going through tor')
 
 
 def cmd_off(args):
@@ -219,7 +231,10 @@ def cmd_off(args):
         session.SESSIONS.mkdir(parents=True, exist_ok=True)
     tor.stop()
     STATE.unlink(missing_ok=True)
-    print(f"[gn] off — {'loop stopped, ' if killed else ''}browsers closed, profiles {'kept' if args.keep_profiles else 'removed'}, tor stopped")
+    ui.ok(
+        f"off — {'loop stopped, ' if killed else ''}browsers closed, "
+        f"profiles {'kept' if args.keep_profiles else 'removed'}, tor stopped"
+    )
 
 
 def main(argv=None):
@@ -260,4 +275,11 @@ def main(argv=None):
     off.set_defaults(func=cmd_off)
 
     args = p.parse_args(argv)
-    args.func(args)
+    try:
+        args.func(args)
+    except KeyboardInterrupt:
+        print()
+        ui.info('stopped')
+    except Exception as e:
+        ui.err(f'{type(e).__name__}: {e}')
+        sys.exit(1)
