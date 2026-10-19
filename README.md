@@ -35,6 +35,48 @@ Built for **authorized pentesting**: rate-limit checks, trial/expiry controls, d
 
 **Does not defeat:** commercial hardware-bound fingerprinting (FingerprintJS Pro-class) at high confidence, account-tied limits, TLS/JA3 correlation. MAC-address rotation is intentionally out of scope — MAC is Layer-2 and never reaches internet servers.
 
+## Dependencies
+
+| package | why | needed for |
+|---|---|---|
+| `tor` | IP rotation — new exit circuit per session (`NEWNYM`) | `--transport tor` (default) |
+| `python3` (≥3.10) | runs ghostnet | everything |
+| `curl` | checks real IP vs Tor exit IP | `gn verify`, exit-IP checks |
+| Chrome or Chromium | the browser each session runs in (Firefox via `--firefox`) | sessions |
+| `python-playwright` | drives the browser, injects per-session fingerprint | sessions — **installed automatically** into a private venv by `install.sh` |
+
+Only **`tor` and `curl`** must be installed manually. Playwright is fetched into `~/.local/share/ghostnet/venv` by the installer — no system Python changes.
+
+Manual install if you don't use `install.sh`:
+
+```bash
+# Arch
+sudo pacman -S tor curl python google-chrome-stable   # or: chromium / firefox
+
+# Debian / Ubuntu
+sudo apt install tor curl python3 chromium            # or: firefox / google-chrome-stable
+
+# Fedora
+sudo dnf install tor curl python3 chromium            # or: firefox / google-chrome
+```
+
+then run `./install.sh` once (creates the venv + links the `gn` command), or set it up by hand:
+
+```bash
+python3 -m venv ~/.local/share/ghostnet/venv
+~/.local/share/ghostnet/venv/bin/pip install playwright
+ln -sf "$PWD/gn" ~/.local/bin/gn     # then ensure ~/.local/bin is in PATH
+```
+
+### Other requirements
+
+- **A browser must be installed** — ghostnet uses your system Chrome/Chromium (default) or Firefox (`--firefox`); the installer warns if none is found.
+- **`~/.local/bin` in PATH** — so the `gn` command resolves; installer prints the exact line if needed:
+  `export PATH="$HOME/.local/bin:$PATH"` (add to `~/.bashrc` or `~/.zshrc`)
+- **A desktop session** — headed (visible) browser windows need a display (X11/Wayland); `--headless` works without one.
+- **Free local ports 19050/19051** — Tor's SOCKS and control ports (changed in `ghostnet/tor.py` if they clash).
+- **Internet access** — to bootstrap Tor and load target sites; `install.sh` also downloads Playwright into the venv.
+
 ## Install
 
 ```bash
@@ -43,7 +85,7 @@ cd ghostnet
 ./install.sh
 ```
 
-Requirements: Linux, `tor`, `curl`, Chrome (or Firefox via `--firefox`). Python deps install into a private venv automatically. **No root needed at runtime.**
+**No root needed at runtime** — Tor runs as your user on ports 19050/19051; sudo is only used by the installer to place the `tor` package.
 
 ## Quick start
 
