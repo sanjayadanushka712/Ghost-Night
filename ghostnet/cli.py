@@ -103,6 +103,7 @@ def _run_session_loop(args, once=False):
         watch = None
     else:
         watch = args.detect if args.detect else (DEFAULT_DETECT if not once else None)
+    instant_limits = 0
     rotate('start')
     if once:
         return mgr, rotate, state
@@ -123,6 +124,13 @@ def _run_session_loop(args, once=False):
                     rotate('detected')
                 else:
                     ui.warn('limit message detected')
+                    if time.time() - state['last'] < 30:
+                        instant_limits += 1
+                        if instant_limits >= 2:
+                            ui.warn('limit returns instantly on every fresh session — it is keyed to your IP, not the device')
+                            ui.info('device rotation cannot reset it; use a different IP: --transport proxy --proxy <vpn-socks-url>')
+                    else:
+                        instant_limits = 0
                     try:
                         ans = input(ui.c(ui.GREEN, '  rotate to a new identity now? [y/N] ')).strip().lower()
                     except EOFError:
@@ -143,7 +151,7 @@ def _run_session_loop(args, once=False):
 
 
 def cmd_go(args):
-    if not args.target.startswith(('http://', 'https://')):
+    if not args.target.startswith(('http://', 'https://', 'file://')):
         sys.exit('error: target must be a full URL (https://...)')
     ui.banner()
     ui.step(f'{ui.c(ui.BOLD, args.target)}   ' + ui.c(ui.DIM, f'transport={args.transport}'))
