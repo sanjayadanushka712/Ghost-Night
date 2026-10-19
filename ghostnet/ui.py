@@ -74,11 +74,11 @@ def kv(key, value, color=None):
 
 
 def panel(title, rows):
-    inner = max((len(k) + 2 + len(str(v)) for k, v, _ in rows), default=40)
+    inner = max((14 + len(str(v)) for _, v, _ in rows), default=40)
     width = max(52, inner)
     print(c(GREEN, f'  ┌─ {title} ') + c(GREEN, '─' * max(0, width - len(title) - 4) + '┐'))
     for key, value, color in rows:
-        pad = max(0, width - 2 - len(key) - len(str(value)))
+        pad = max(0, width - 16 - len(str(value)))
         print(
             c(GREEN, '  │ ') + c(DIM, key.ljust(12))
             + (c(color, str(value)) if color else str(value))
