@@ -20,6 +20,7 @@ ghostnet turns one machine into many "devices" for testing how web applications 
 
 Built for **authorized pentesting**: rate-limit checks, trial/expiry controls, device- and IP-ban enforcement, anti-abuse logic.
 
+preview:https://drive.google.com/file/d/1VMZLD7_RlxjPKBVr9buRfhU_ZmayETO7/view?usp=sharing
 <img width="606" height="295" alt="image" src="https://github.com/user-attachments/assets/d85010bd-1176-45dc-9e67-8c88f912d2b3" />
 
 
