@@ -46,7 +46,7 @@ def write_config(exit_nodes=None, strict=False):
                 toks.append(e)
             else:
                 toks.append('{' + e + '}')
-        lines.append('ExitNodes ' + ' '.join(toks))
+        lines.append('ExitNodes ' + ','.join(toks))
         if strict:
             lines.append('StrictNodes 1')
     new = '\n'.join(lines) + '\n'
