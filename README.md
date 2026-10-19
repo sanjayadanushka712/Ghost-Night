@@ -26,30 +26,32 @@ Requires: Linux, `tor`, `python-playwright` (uses your installed Chrome), `curl`
 
 ## Quick start
 
+The everyday flow — no flags needed:
+
 ```bash
-gn verify                      # check tor works (real ip vs tor exit ip)
-gn go https://example.com      # start: new IP + new device session
-gn new                         # rotate right now (new IP + new device)
-gn status                      # tor, current session, recent events
-gn off                         # kill everything, clean up profiles
+gn go https://site.com      # open site as a device; use it normally (log in, work)
+                            # when the page shows a limit message, session auto-stops
+gn new                      # continue as a brand-new user on the same site
+                            # (fresh device identity, same URL — just log in/use again)
+
+gn status                   # tor, current session, recent events
+gn off                      # kill everything, clean up profiles
 ```
 
-### Auto-rotation modes
+`gn go` always watches for common limit messages ("limit hit", "no credits", "upgrade", "quota exceeded", ...) and closes itself when one appears — then `gn new` gives you a clean identity on the same site.
+
+### Verify / extras
 
 ```bash
-gn go https://site.com --every 25m            # rotate on a timer
-gn go https://site.com --detect "no tokens|limit reached|expired"   # rotate when the page says so
-gn go https://site.com --every 25m --detect "limit" --headless      # both, headless
-```
-
-### Other options
-
-```bash
-gn go https://site --once              # single session, no loop
-gn go https://site --transport proxy --proxy socks5://127.0.0.1:1080   # use your own proxy instead of tor
-gn go https://site --transport direct  # no proxy at all (testing)
-gn go https://site --firefox           # Firefox channel instead of Chrome
-gn go https://site --keep-profiles     # keep profiles on disk after rotate
+gn verify                                # check tor works (real ip vs tor exit ip)
+gn go https://site --every 25m           # also auto-rotate on a timer
+gn go https://site --detect "regex"      # auto-rotate on your own pattern instead of stopping
+gn go https://site --once                # single session, no limit watching
+gn go https://site --transport proxy --proxy socks5://127.0.0.1:1080   # your own proxy
+gn go https://site --transport direct    # no proxy (cookie/fingerprint rotation only)
+gn go https://site --firefox             # Firefox instead of Chrome
+gn go https://site --keep-profiles       # keep profiles on disk after rotate
+gn new --target https://other.com        # override remembered site
 ```
 
 ## How a rotation works

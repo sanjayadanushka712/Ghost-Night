@@ -14,6 +14,7 @@ from .log import event, tail
 CONF = Path.home() / '.config' / 'ghostnet'
 GN_PID = CONF / 'gn.pid'
 STATE = CONF / 'state.json'
+DEFAULT_DETECT = r'limit hit|no credits|upgrade your subscription|out of credits|quota exceeded|no remaining credits'
 
 
 def parse_every(s):
@@ -69,6 +70,7 @@ def _run_session_loop(args, once=False):
             print(f'[gn] exit ip: {ip}')
 
     interval = parse_every(args.every) if args.every else None
+    watch = args.detect if args.detect else (DEFAULT_DETECT if not once else None)
     rotate('start')
     if once:
         return mgr, rotate, state
@@ -83,9 +85,14 @@ def _run_session_loop(args, once=False):
                 print(f'[gn] timer fired after {args.every}; rotating')
                 rotate('timer')
                 continue
-            if args.detect and mgr.matches(args.detect):
-                print(f'[gn] pattern matched ({args.detect}); rotating')
-                rotate('detected')
+            if watch and mgr.matches(watch):
+                if args.detect:
+                    print(f'[gn] pattern matched ({args.detect}); rotating')
+                    rotate('detected')
+                else:
+                    print('[gn] limit message detected — session closed.')
+                    print("[gn] run 'gn new' to continue as a brand-new user on the same site.")
+                    break
     except KeyboardInterrupt:
         print('\n[gn] stopping')
     finally:
@@ -115,17 +122,23 @@ def cmd_go(args):
 
 def cmd_new(args):
     CONF.mkdir(parents=True, exist_ok=True)
+    st = json.loads(STATE.read_text()) if STATE.exists() else {}
+    target = args.target or st.get('target')
+    if not target:
+        sys.exit("error: no previous target — run 'gn go URL' first, or pass --target")
+    args.target = target
     proxy = _proxy_for(args)
     if args.transport == 'tor':
         tor.newnym()
         time.sleep(2)
     mgr = session.Manager(headless=args.headless, proxy=proxy, channel='chrome' if not args.firefox else 'firefox')
-    meta = mgr.open(args.target)
+    meta = mgr.open(target)
     ip = tor.get_ip()[0] if args.transport == 'tor' else None
     _save_state(sid=meta['sid'], target=args.target, since=time.time(), proxy=proxy, reason='manual', ip=ip)
     event('rotate', reason='manual', sid=meta['sid'], target=args.target, ip=ip,
           viewport=meta['viewport'], tz=meta['tz'], platform=meta['platform'])
     print(f"[gn] new session {meta['sid']}  {meta['platform']}  {meta['viewport']}  {meta['tz']}")
+    print(f'[gn] new user on {target}')
     if ip:
         print(f'[gn] exit ip: {ip}')
     if args.headless:
