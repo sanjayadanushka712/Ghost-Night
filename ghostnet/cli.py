@@ -87,7 +87,8 @@ def _run_session_loop(args, once=False):
         meta = _open_with_retry(mgr, args.target, args.transport)
         state['last'] = time.time()
         ip = tor.get_ip()[0] if args.transport == 'tor' else None
-        _save_state(sid=meta['sid'], target=args.target, since=state['last'], proxy=proxy, reason=reason, ip=ip)
+        _save_state(sid=meta['sid'], target=args.target, since=state['last'], proxy=proxy,
+                    reason=reason, ip=ip, transport=args.transport)
         event('rotate', reason=reason, sid=meta['sid'], target=args.target, ip=ip,
               viewport=meta['viewport'], tz=meta['tz'], platform=meta['platform'])
         ui.session_line(meta)
@@ -157,6 +158,9 @@ def cmd_new(args):
     if not target:
         sys.exit("error: no previous target — run 'gn go URL' first, or pass --target")
     args.target = target
+    args.transport = args.transport or st.get('transport') or 'tor'
+    if args.transport == 'proxy' and not args.proxy:
+        args.proxy = st.get('proxy')
     proxy = _proxy_for(args)
     if args.transport == 'tor':
         tor.newnym()
@@ -164,7 +168,8 @@ def cmd_new(args):
     mgr = session.Manager(headless=args.headless, proxy=proxy, channel='chrome' if not args.firefox else 'firefox')
     meta = _open_with_retry(mgr, target, args.transport)
     ip = tor.get_ip()[0] if args.transport == 'tor' else None
-    _save_state(sid=meta['sid'], target=target, since=time.time(), proxy=proxy, reason='manual', ip=ip)
+    _save_state(sid=meta['sid'], target=target, since=time.time(), proxy=proxy,
+                reason='manual', ip=ip, transport=args.transport)
     event('rotate', reason='manual', sid=meta['sid'], target=target, ip=ip,
           viewport=meta['viewport'], tz=meta['tz'], platform=meta['platform'])
     ui.step('new user on ' + ui.c(ui.BOLD, target))
@@ -270,7 +275,8 @@ def main(argv=None):
 
     new = sub.add_parser('new', help='one-shot: new IP + fresh device session')
     new.add_argument('--target', default=None, help='URL to open')
-    new.add_argument('--transport', choices=['tor', 'proxy', 'direct'], default='tor')
+    new.add_argument('--transport', choices=['tor', 'proxy', 'direct'], default=None,
+                     help='default: remember what "gn go" used (else tor)')
     new.add_argument('--proxy', help='custom proxy URL for --transport proxy')
     new.add_argument('--headless', action='store_true')
     new.add_argument('--firefox', action='store_true')
