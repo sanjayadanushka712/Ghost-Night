@@ -2,7 +2,6 @@ import json
 import os
 import signal
 import socket
-import struct
 import subprocess
 import time
 from pathlib import Path
@@ -58,6 +57,7 @@ def start(timeout=120):
         stop()
         time.sleep(1)
     write_config()
+    LOG.unlink(missing_ok=True)
     with open(LOG, 'a') as err:
         p = subprocess.Popen(
             ['tor', '-f', str(TORRC)],
@@ -88,28 +88,27 @@ def stop():
 def _control(cmds):
     cookie = (DATA / 'control_auth_cookie').read_bytes()
     s = socket.create_connection((CTRL_HOST, CTRL_PORT), timeout=10)
+    s.settimeout(10)
     f = s.makefile('rb')
 
     def xmit(cmd):
-        data = cmd.encode() if isinstance(cmd, str) else cmd
-        s.sendall(struct.pack('>I', len(data)) + data)
+        s.sendall((cmd + '\r\n').encode())
         replies = []
         while True:
-            header = f.read(4)
-            if len(header) < 4:
+            raw = f.readline()
+            if not raw:
                 raise ConnectionError('control socket closed')
-            body = f.read(struct.unpack('>I', header)[0])
-            for line in body.decode(errors='replace').split('\r\n'):
-                if not line:
-                    continue
-                replies.append(line)
-                if len(line) >= 4 and line[3] == ' ':
-                    if line.startswith('250'):
-                        return replies
-                    raise RuntimeError(f'control error: {line}')
+            text = raw.decode(errors='replace').rstrip('\r\n')
+            if not text:
+                continue
+            replies.append(text)
+            if len(text) >= 4 and text[3] == ' ':
+                if text.startswith('250'):
+                    return replies
+                raise RuntimeError(f'control error: {text}')
 
     try:
-        xmit(b'AUTHENTICATE ' + cookie.hex().encode())
+        xmit('AUTHENTICATE ' + cookie.hex())
         out = []
         for cmd in cmds:
             out.extend(xmit(cmd))
