@@ -10,7 +10,7 @@ import time
 from pathlib import Path
 from urllib.parse import urlparse
 
-from . import bridges, session, tor, ui
+from . import bridges, proxies, session, tor, ui
 from .log import event, tail
 
 CONF = Path.home() / '.config' / 'ghost_night'
@@ -49,6 +49,12 @@ def _proxy_for(args):
     if args.transport == 'direct':
         return None
     if args.transport == 'proxy':
+        pool = getattr(args, 'proxy_pool', None)
+        if pool:
+            try:
+                return proxies.pick(pool)
+            except RuntimeError as e:
+                sys.exit(f'error: {e}')
         if not args.proxy:
             sys.exit('error: --transport proxy requires --proxy URL (e.g. socks5://127.0.0.1:1080)')
         return args.proxy
@@ -212,19 +218,25 @@ def _run_session_loop(args, once=False):
     signal.signal(signal.SIGUSR1, on_usr1)
     with ui.spinner('starting tor' if args.transport in ('tor', 'obfs4') else 'preparing'):
         proxy = _proxy_for(args)
-    mgr = session.Manager(headless=args.headless, proxy=proxy, keep_profiles=args.keep_profiles)
+    mgr = session.Manager(headless=args.headless, proxy=proxy, keep_profiles=args.keep_profiles,
+                          channel='firefox' if getattr(args, 'firefox', False) else 'chrome')
     state = {'last': time.time()}
 
     def rotate(reason):
+        nonlocal proxy
         if args.transport in ('tor', 'obfs4'):
             with ui.spinner('requesting new tor circuit'):
                 tor.newnym()
                 time.sleep(2)
+        if args.transport == 'proxy' and getattr(args, 'proxy_pool', None):
+            proxy = proxies.pick(args.proxy_pool)
+            mgr.proxy = proxy
         meta = _open_with_retry(mgr, args)
         state['last'] = time.time()
         ip = tor.get_ip()[0] if args.transport in ('tor', 'obfs4') else None
         _save_state(sid=meta['sid'], target=args.target, since=state['last'], proxy=proxy,
                     reason=reason, ip=ip, transport=args.transport,
+                    proxy_pool=getattr(args, 'proxy_pool', None),
                     viewport=meta['viewport'], tz=meta['tz'], platform=meta['platform'],
                     locale=meta.get('locale', '-'))
         event('rotate', reason=reason, sid=meta['sid'], target=args.target, ip=ip,
@@ -406,7 +418,10 @@ def cmd_new(args):
         sys.exit("error: no previous target — run 'gn go URL' first, or pass --target")
     args.target = target
     args.transport = args.transport or st.get('transport') or 'tor'
-    if args.transport == 'proxy' and not args.proxy:
+    pool = getattr(args, 'proxy_pool', None) or st.get('proxy_pool')
+    if args.transport == 'proxy' and pool:
+        args.proxy_pool = pool
+    elif args.transport == 'proxy' and not args.proxy:
         args.proxy = st.get('proxy')
     with ui.spinner('starting tor' if args.transport in ('tor', 'obfs4') else 'preparing'):
         proxy = _proxy_for(args)
@@ -523,6 +538,7 @@ def main(argv=None):
     go.add_argument('--no-watch', action='store_true', help='disable limit-message watching (plain fresh sessions)')
     go.add_argument('--transport', choices=['tor', 'obfs4', 'proxy', 'direct'], default='tor')
     go.add_argument('--proxy', help='custom proxy URL for --transport proxy')
+    go.add_argument('--proxy-pool', help='file of proxy URLs (one per line) to rotate through each session')
     go.add_argument('--headless', action='store_true', help='run browser without window')
     go.add_argument('--once', action='store_true', help='single session, no auto-rotate loop')
     go.add_argument('--keep-profiles', action='store_true', help='do not delete profiles on rotate')
@@ -538,6 +554,7 @@ def main(argv=None):
     new.add_argument('--transport', choices=['tor', 'obfs4', 'proxy', 'direct'], default=None,
                      help='default: remember what "gn go" used (else tor)')
     new.add_argument('--proxy', help='custom proxy URL for --transport proxy')
+    new.add_argument('--proxy-pool', help='file of proxy URLs (one per line) to rotate through each session')
     new.add_argument('--headless', action='store_true')
     new.add_argument('--firefox', action='store_true')
     new.set_defaults(func=cmd_new)

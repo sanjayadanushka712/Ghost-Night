@@ -20,6 +20,37 @@ FF_OS = {
     'linux': ('X11; Linux x86_64; rv:', 'Linux x86_64'),
 }
 
+# Firefox privacy-hardening prefs applied to every ephemeral profile — these
+# make a throwaway Firefox look like a normal user while blocking the noisy
+# surfaces (RFP stays OFF so we keep our own coherent spoof)
+FF_PREFS = {
+    'privacy.resistFingerprinting': False,
+    'privacy.trackingprotection.enabled': True,
+    'privacy.trackingprotection.fingerprinting.enabled': True,
+    'privacy.trackingprotection.cryptomining.enabled': True,
+    'privacy.firstparty.isolate': False,
+    'webgl.disabled': False,
+    'webgl.renderer-string-override': '',
+    'webgl.vendor-string-override': '',
+    'dom.webdriver.enabled': False,
+    'useAutomationExtension': False,
+    'media.navigator.enabled': True,
+    'dom.webaudio.enabled': True,
+    'beacon.enabled': True,
+    'network.http.referer.XOriginPolicy': 0,
+    'browser.startup.page': 0,
+    'browser.startup.homepage_override.mstone': 'ignore',
+    'datareporting.policy.dataSubmissionEnabled': False,
+    'datareporting.healthreport.uploadEnabled': False,
+    'toolkit.telemetry.enabled': False,
+    'toolkit.telemetry.unified': False,
+    'app.shield.optoutstudies.enabled': False,
+    'browser.discovery.enabled': False,
+    'browser.newtabpage.activity-stream.feeds.telemetry': False,
+    'extensions.pocket.enabled': False,
+    'signon.rememberSignons': False,
+}
+
 # coherent device bundles: OS + screen + dpr + viewport + timezone + locale +
 # cores + memory + GPU must all describe ONE plausible machine
 PROFILES = [
@@ -345,8 +376,21 @@ NOISE = r"""
 
 
 def _real_browser_version(channel):
-    exes = (['google-chrome-stable', 'google-chrome', 'chrome', 'chromium']
-            if channel != 'firefox' else ['firefox'])
+    if channel == 'firefox':
+        exes = ['firefox', 'firefox-developer-edition',
+                str(Path.home() / '.cache' / 'ms-playwright')]
+        ff_bin = _playwright_firefox_bin()
+        for exe in ([ff_bin] if ff_bin else []) + ['firefox', 'firefox-developer-edition']:
+            try:
+                out = subprocess.run([exe, '--version'], capture_output=True,
+                                     text=True, timeout=10).stdout
+                m = re.search(r'Firefox[\s/](\d+)\.(\d+)', out, re.I)
+                if m:
+                    return f'{m.group(1)}.0', m.group(1)
+            except (OSError, subprocess.TimeoutExpired):
+                continue
+        return '133.0', '133'
+    exes = ['google-chrome-stable', 'google-chrome', 'chrome', 'chromium']
     for exe in exes:
         try:
             out = subprocess.run([exe, '--version'], capture_output=True, text=True, timeout=10).stdout
@@ -356,6 +400,18 @@ def _real_browser_version(channel):
         except (OSError, subprocess.TimeoutExpired):
             continue
     return '131.0.0.0', '131'
+
+
+def _playwright_firefox_bin():
+    root = Path.home() / '.cache' / 'ms-playwright'
+    try:
+        for d in sorted(root.glob('firefox-*'), reverse=True):
+            for cand in (d / 'firefox' / 'firefox', d / 'firefox' / 'firefox-bin'):
+                if cand.exists():
+                    return str(cand)
+    except OSError:
+        pass
+    return None
 
 
 def _host_only_fonts(profile):
@@ -487,13 +543,17 @@ class Manager:
         profile = random.choice(PROFILES)
         seed = random.getrandbits(32)
         version, major = _real_browser_version(self.channel)
-        if self.channel == 'firefox':
-            ua = ('Mozilla/5.0 (' + FF_OS[profile['os']][0] + major
-                  + '.0) Gecko/20100101 Firefox/' + major + '.0')
+        is_ff = self.channel == 'firefox'
+        if is_ff:
+            rv = major if '.' in str(major) else f'{major}.0'
+            ua = ('Mozilla/5.0 (' + FF_OS[profile['os']][0] + rv
+                  + ') Gecko/20100101 Firefox/' + rv)
+            plat = FF_OS[profile['os']][1]
         else:
             ua = ('Mozilla/5.0 (' + UA_OS[profile['os']][0]
                   + ') AppleWebKit/537.36 (KHTML, like Gecko) Chrome/'
                   + version + ' Safari/537.36')
+            plat = UA_OS[profile['os']][1]
         w, h = profile['viewport']
         kwargs = dict(
             user_data_dir=str(path),
@@ -503,24 +563,33 @@ class Manager:
             device_scale_factor=profile['dpr'],
             locale=profile['locale'],
             timezone_id=profile['tz'],
-            args=[
+        )
+        if is_ff:
+            prefs = dict(FF_PREFS)
+            prefs['general.useragent.override'] = ua
+            prefs['intl.accept_languages'] = (
+                profile['locale'] + ',' + profile['locale'].split('-')[0])
+            kwargs['firefox_user_prefs'] = prefs
+        else:
+            kwargs['args'] = [
                 '--no-first-run',
                 '--no-default-browser-check',
                 '--disable-blink-features=AutomationControlled',
                 '--force-webrtc-ip-handling-policy=disable_non_proxied_udp',
-            ],
-            ignore_default_args=['--enable-automation'],
-        )
-        if self.channel:
-            kwargs['channel'] = self.channel
+            ]
+            kwargs['ignore_default_args'] = ['--enable-automation']
+            if self.channel:
+                kwargs['channel'] = self.channel
         if self.proxy:
             kwargs['proxy'] = {'server': self.proxy}
-        ctx = self._pw().chromium.launch_persistent_context(**kwargs)
+        engine = self._pw().firefox if is_ff else self._pw().chromium
+        ctx = engine.launch_persistent_context(**kwargs)
         self._closed = False
         ctx.on('close', lambda _: setattr(self, '_closed', True))
         ctx.add_init_script(_script(profile, seed, version, self.channel))
         page = ctx.pages[0] if ctx.pages else ctx.new_page()
-        self._attach_ua(ctx, page, ua, profile, version, profile['locale'])
+        if not is_ff:
+            self._attach_ua(ctx, page, ua, profile, version, profile['locale'])
         status = None
         if target:
             resp = page.goto(target, wait_until='domcontentloaded', timeout=60000)
@@ -531,11 +600,11 @@ class Manager:
         self.started = time.time()
         self.target = target
         meta = {
-            'sid': sid, 'ua': ua, 'platform': UA_OS[profile['os']][1],
+            'sid': sid, 'ua': ua, 'platform': plat,
             'viewport': f'{w}x{h}', 'tz': profile['tz'], 'locale': profile['locale'],
             'gpu': profile['gpu'][1], 'cores': profile['cores'],
             'seed': seed, 'target': target, 'proxy': self.proxy,
-            'status': status,
+            'status': status, 'engine': 'firefox' if is_ff else 'chromium',
         }
         (path / 'ghost_night.json').write_text(json.dumps(meta))
         return meta
