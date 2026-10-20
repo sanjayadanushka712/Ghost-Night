@@ -167,11 +167,17 @@ def _open_with_retry(mgr, args):
 def _run_session_loop(args, once=False):
     CONF.mkdir(parents=True, exist_ok=True)
     GN_PID.write_text(str(os.getpid()))
+    detach = bool(os.environ.get('GHOSTNET_DETACH'))
+    want = {'rotate': False}
 
     def on_term(*_):
         raise KeyboardInterrupt
 
+    def on_usr1(*_):
+        want['rotate'] = True
+
     signal.signal(signal.SIGTERM, on_term)
+    signal.signal(signal.SIGUSR1, on_usr1)
     proxy = _proxy_for(args)
     mgr = session.Manager(headless=args.headless, proxy=proxy, keep_profiles=args.keep_profiles)
     state = {'last': time.time()}
@@ -204,6 +210,11 @@ def _run_session_loop(args, once=False):
     try:
         while True:
             time.sleep(5)
+            if want['rotate']:
+                want['rotate'] = False
+                ui.info('new session requested (gn new) — rotating')
+                rotate('manual')
+                continue
             if not mgr.is_open():
                 rotate('browser-closed')
                 continue
@@ -224,6 +235,10 @@ def _run_session_loop(args, once=False):
                             ui.info('device rotation cannot reset it; use a different IP: --transport proxy --proxy <vpn-socks-url>')
                     else:
                         instant_limits = 0
+                    if detach:
+                        ui.info('detached mode — rotating automatically')
+                        rotate('limit-detached')
+                        continue
                     try:
                         ans = input(ui.c(ui.GREEN, '  rotate to a new identity now? [y/N] ')).strip().lower()
                     except EOFError:
@@ -246,6 +261,22 @@ def _run_session_loop(args, once=False):
 def cmd_go(args):
     if not args.target.startswith(('http://', 'https://', 'file://')):
         sys.exit('error: target must be a full URL (https://...)')
+    if args.detach and not os.environ.get('GHOSTNET_DETACH'):
+        log = open(CONF / 'gn.log', 'a')
+        child_argv = [a for a in sys.argv[1:] if a != '--detach']
+        env = dict(os.environ, GHOSTNET_DETACH='1')
+        p = subprocess.Popen(
+            [sys.executable, str(Path(__file__).resolve().parents[1] / 'gn')] + child_argv,
+            stdout=log, stderr=log, stdin=subprocess.DEVNULL,
+            start_new_session=True, env=env,
+        )
+        log.close()
+        ui.banner()
+        ui.step(f'{ui.c(ui.BOLD, args.target)}   ' + ui.c(ui.DIM, f'transport={args.transport}'))
+        ui.ok(f'session loop detached — pid {p.pid}')
+        ui.info('control it from any terminal:  gn new (rotate) · gn status · gn off (stop)')
+        ui.info(f'logs: tail -f {CONF / "gn.log"}')
+        return
     ui.banner()
     ui.step(f'{ui.c(ui.BOLD, args.target)}   ' + ui.c(ui.DIM, f'transport={args.transport}'))
     if args.once and not args.every and not args.detect:
@@ -265,6 +296,18 @@ def cmd_go(args):
 
 def cmd_new(args):
     CONF.mkdir(parents=True, exist_ok=True)
+    if GN_PID.exists():
+        try:
+            pid = int(GN_PID.read_text().strip())
+            os.kill(pid, 0)
+        except (ValueError, ProcessLookupError, PermissionError):
+            pid = None
+        if pid:
+            os.kill(pid, signal.SIGUSR1)
+            ui.info(f'sent rotate request to running session loop (pid {pid}) — new identity coming up')
+            ui.info("follow it with: gn status")
+            return
+        GN_PID.unlink(missing_ok=True)
     st = json.loads(STATE.read_text()) if STATE.exists() else {}
     target = args.target or st.get('target')
     if not target:
@@ -383,6 +426,8 @@ def main(argv=None):
     go.add_argument('--once', action='store_true', help='single session, no auto-rotate loop')
     go.add_argument('--keep-profiles', action='store_true', help='do not delete profiles on rotate')
     go.add_argument('--firefox', action='store_true', help='use Firefox channel instead of Chrome')
+    go.add_argument('--detach', action='store_true',
+                    help='run the session loop in the background; control with gn new / gn status / gn off')
     go.set_defaults(func=cmd_go)
 
     new = sub.add_parser('new', help='one-shot: new IP + fresh device session')

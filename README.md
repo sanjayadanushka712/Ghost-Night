@@ -92,7 +92,11 @@ cd ghostnet
 ```bash
 gn go https://target-site.com   # open as a fresh device; use it normally (log in, work)
                                 # auto-stops when a limit message appears
+gn go https://target-site.com --detach
+                                # same, but in the background — your prompt returns
+                                # control it live: gn new / gn status / gn off
 gn new                          # continue as a brand-new user on the same site
+                                # (if a loop is running, it rotates that loop — no Ctrl+C needed)
 gn status                       # tor, current session, recent events
 gn verify                       # check tor (real ip vs exit ip)
 gn off                          # stop everything, clean up
@@ -134,6 +138,7 @@ gn go URL --detect "regex"                   # custom limit pattern (auto-rotate
 gn go URL --no-watch                         # no limit watching at all
 gn go URL --every 25m                        # timed rotation
 gn go URL --once                             # single session
+gn go URL --detach                           # background loop; control with gn new/status/off
 gn go URL --firefox --headless --keep-profiles
 gn new --target https://other-site.com       # switch sites
 ```
@@ -156,6 +161,7 @@ gn new --target https://other-site.com       # switch sites
 
 ### v1.1.0
 - Self-contained IP rotation — no VPN needed
+- `gn go --detach` — session loop runs in the background; `gn new` / `gn status` / `gn off` work live from any terminal (no Ctrl+C needed)
 - Exit-strategy ladder: proven exits → country rotation → any exit → direct fallback
 - Tor config changes applied via SIGHUP reload (~2s, no re-bootstrap)
 - `NEWNYM` throttled to Tor's 10s rate limit — no stale-circuit leaks
