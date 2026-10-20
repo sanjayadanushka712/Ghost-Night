@@ -26,7 +26,7 @@ def bootstrap_done():
         return False
 
 
-def write_config(exit_nodes=None, strict=False):
+def write_config(exit_nodes=None, strict=False, obfs4=False, bridges=None):
     _ensure()
     lines = [
         f'SocksPort {SOCKS_HOST}:{SOCKS_PORT}',
@@ -38,6 +38,19 @@ def write_config(exit_nodes=None, strict=False):
         'ClientOnly 1',
         'AvoidDiskWrites 1',
     ]
+    if obfs4:
+        import shutil
+        exe = shutil.which('obfs4proxy')
+        if not exe:
+            raise RuntimeError('obfs4proxy not installed (arch: yay -S obfs4proxy)')
+        lines.append(f'ClientTransportPlugin obfs4 exec {exe}')
+        lines.append('UseBridges 1')
+        for b in (bridges or []):
+            b = b.strip()
+            if b and not b.startswith('Bridge '):
+                lines.append('Bridge ' + b)
+            elif b:
+                lines.append(b)
     if exit_nodes:
         toks = []
         for e in exit_nodes:
@@ -80,12 +93,20 @@ def _reload():
         return False
 
 
-def start(timeout=120, exit_nodes=None, strict=False):
-    changed = write_config(exit_nodes, strict)
+def start(timeout=120, exit_nodes=None, strict=False, obfs4=False, bridges=None):
+    old = TORRC.read_text() if TORRC.exists() else ''
+    old_obfs4 = 'UseBridges 1' in old
+    changed = write_config(exit_nodes, strict, obfs4, bridges)
     if is_running() and bootstrap_done():
         if changed:
-            _reload()
-        return
+            if old_obfs4 != bool(obfs4):
+                stop()
+                time.sleep(1)
+            else:
+                _reload()
+                return
+        else:
+            return
     if is_running():
         stop()
         time.sleep(1)

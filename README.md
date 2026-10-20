@@ -8,10 +8,10 @@
 </p>
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-1.2.0-46d746">
+  <img alt="version" src="https://img.shields.io/badge/version-1.3.0-46d746">
   <img alt="license" src="https://img.shields.io/badge/license-GPL--3.0-46d746">
   <img alt="platform" src="https://img.shields.io/badge/platform-Linux-lightgrey">
-  <img alt="tor" src="https://img.shields.io/badge/transport-Tor%20%7C%20proxy%20%7C%20direct-46d746">
+  <img alt="tor" src="https://img.shields.io/badge/transport-Tor%20%7C%20obfs4%20%7C%20proxy%20%7C%20direct-46d746">
 </p>
 
 ---
@@ -33,10 +33,11 @@ Built for **authorized pentesting**: rate-limit checks, trial/expiry controls, d
 | Cookies / localStorage device IDs | brand-new browser profile every rotation — zero storage carryover |
 | Public IP address | Tor circuit rotation (`NEWNYM`) or your own rotating proxy |
 | WebRTC / DNS leaking the real IP | WebRTC policy locked off, DNS forced through the proxy |
-| UA / locale / viewport / timezone | randomized per session |
-| Canvas / WebGL fingerprint | deterministic-per-session noise (seeded) |
+| UA / locale / viewport / timezone | **coherent device profile** — one plausible machine (OS, screen, dpr, cores, GPU, tz+locale all match), browser version = your real installed version (UA ↔ UA-CH can't disagree) |
+| Canvas / WebGL fingerprint | deterministic-per-session canvas noise + WebGL vendor/renderer spoofed to match the profile's GPU |
+| Cross-API contradictions (the #1 bot signal) | `navigator.platform`, `userAgentData`, screen size, `devicePixelRatio`, `hardwareConcurrency`, `deviceMemory` all overridden to the same profile |
 
-**Does not defeat:** commercial hardware-bound fingerprinting (FingerprintJS Pro-class) at high confidence, account-tied limits, TLS/JA3 correlation. MAC-address rotation is intentionally out of scope — MAC is Layer-2 and never reaches internet servers.
+**Does not defeat:** server-side, non-browser signals — account-tied limits, IP reputation of datacenter exits, TLS/JA3 correlation, behavioral typing. Against fingerprint-script services (FingerprintJS open-source / "device fingerprint" scripts) ghostnet's coherent profiles are strong: every API tells the same story. Hardware-bound commercial stacking (FingerprintJS Pro-class with server-side ML) can still correlate — no single browser-side tool beats that honestly. MAC-address rotation is intentionally out of scope — MAC is Layer-2 and never reaches internet servers.
 
 ## Security & privacy
 
@@ -44,14 +45,15 @@ Built for **authorized pentesting**: rate-limit checks, trial/expiry controls, d
 - **Profiles are deleted on rotation** — each browser profile (cookies, storage) is wiped when the next identity starts; use `--keep-profiles` only if you need forensic artifacts.
 - **Evidence log may contain sensitive data** — `log.jsonl` records IPs, fingerprints, and timestamps of your sessions. Treat it like test evidence: don't share it publicly, delete it when the engagement ends (`gn off` clears state, remove the log manually if needed).
 - **Tor exit nodes can read unencrypted traffic** — never send passwords, tokens, or personal data over plain `http://` through Tor. HTTPS is encrypted end-to-end even via exits.
-- **ghostnet does not anonymize YOU against the network operator** — your ISP/employer can see you're using Tor; Tor traffic itself is visible (though content is encrypted). For that class of threat use a VPN/Tails — not this tool.
-- **Fingerprint noise is best-effort** — it defeats casual cross-session tracking, not a motivated adversary running FingerprintJS Pro-class stacking.
+- **ghostnet does not anonymize YOU against the network operator** — your ISP/employer can see you're using Tor; Tor traffic itself is visible (though content is encrypted). Use `--transport obfs4` to make Tor traffic indistinguishable from random encrypted bytes on the wire (ISP DPI can't tell it's Tor). For full anonymity against the network operator use a VPN/Tails — not this tool.
+- **Fingerprint spoofing is best-effort** — coherent profiles defeat casual cross-session tracking and fingerprint scripts; a motivated adversary with server-side signals (FingerprintJS Pro-class) is still a stronger opponent.
 
 ## Dependencies
 
 | package | why | needed for |
 |---|---|---|
 | `tor` | IP rotation — new exit circuit per session (`NEWNYM`) | `--transport tor` (default) |
+| `obfs4proxy` (optional) | pluggable transport — Tor traffic disguised as random bytes, so your ISP can't see you're using Tor | `--transport obfs4` |
 | `python3` (≥3.10) | runs ghostnet | everything |
 | `curl` | checks real IP vs Tor exit IP | `gn verify`, exit-IP checks |
 | Chrome or Chromium | the browser each session runs in (Firefox via `--firefox`) | sessions |
@@ -144,6 +146,7 @@ Details of how the ladder stays fast and accurate:
 
 ```bash
 gn go URL --transport tor                    # default: tor with auto-retry on blocked exits
+gn go URL --transport obfs4                  # tor over obfs4 bridges — ISP can't see it's tor
 gn go URL --transport direct                 # no proxy — cookie/fingerprint rotation only
 gn go URL --transport proxy --proxy socks5://127.0.0.1:1080
 gn go URL --detect "regex"                   # custom limit pattern (auto-rotate on match)
@@ -159,17 +162,24 @@ gn new --target https://other-site.com       # switch sites
 
 1. Tor gets `NEWNYM` → next connection uses a new exit circuit (new public IP); blocked exits are retried automatically.
 2. Old browser profile is closed and deleted.
-3. A new profile is created with a fresh identity: new UA/platform, viewport, timezone, locale, canvas/WebGL noise seed.
+3. A new profile is created with a fresh identity: one coherent device profile (OS + screen + dpr + GPU + cores + tz + locale all from the same plausible machine), real browser version, fresh canvas noise seed.
 4. The browser launches through the proxy and opens the target.
 5. The event is logged (`~/.local/share/ghostnet/log.jsonl`) — evidence for your pentest report.
 
 ## Files
 
-- `~/.config/ghostnet/` — tor config, control cookie, logs, proven-exit cache (`good_exits.json`)
+- `~/.config/ghostnet/` — tor config, control cookie, logs, proven-exit cache (`good_exits.json`), obfs4 bridges (`bridges.txt`)
 - `~/.local/share/ghostnet/sessions/` — live browser profiles (deleted on rotate)
 - `~/.local/share/ghostnet/log.jsonl` — rotation history (IP, fingerprint, timestamp)
 
 ## Changelog
+
+### v1.3.0
+- **Coherent device profiles** — every session picks one plausible machine (OS, screen, dpr, viewport, GPU, cores, memory, timezone+locale pairs) instead of mixing random values that contradict each other
+- **UA ↔ UA-CH parity** — User-Agent claims your real installed browser version; `sec-ch-ua*` headers, `navigator.userAgentData` high-entropy hints, and `navigator.platform` all agree (no more cross-API bot signals)
+- WebGL vendor/renderer spoofed to match the profile's GPU (Windows D3D11 / macOS Metal / Linux OpenGL strings) — no more corrupted renderer strings
+- Screen size, `devicePixelRatio`, `hardwareConcurrency`, `deviceMemory`, `navigator.webdriver` overridden per profile
+- **`--transport obfs4`** — Tor over obfs4 bridges: ISP/DPI sees random bytes, not Tor. First use fetches bridges from torproject.org (captcha shown once, bridges cached in `~/.config/ghostnet/bridges.txt`)
 
 ### v1.2.0
 - `gn go --detach` — session loop in the background; `gn new` / `gn status` / `gn off` work live from any terminal (no Ctrl+C needed)
@@ -200,7 +210,7 @@ Contributions welcome — this tool gets better with use:
 
 - **Detection packs**: PRs with `--detect` patterns for known apps (helpful, no app-specific code in core)
 - **Transports**: QUIC/HTTP3 proxies, WireGuard rotation, containerized exits
-- **Fingerprinting**: stronger per-session noise, font/UA-CH consistency models, Firefox profile hardening
+- **Fingerprinting**: font-consistency models, Firefox profile hardening, audio-context noise
 - **Ops**: better status views, JSON output mode, systemd units
 
 Workflow: fork → feature branch → PR. Keep the core dependency-light (stdlib + playwright); no app-specific logic in core.

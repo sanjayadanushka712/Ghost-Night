@@ -9,7 +9,7 @@ import time
 from pathlib import Path
 from urllib.parse import urlparse
 
-from . import session, tor, ui
+from . import bridges, session, tor, ui
 from .log import event, tail
 
 CONF = Path.home() / '.config' / 'ghostnet'
@@ -51,6 +51,17 @@ def _proxy_for(args):
         if not args.proxy:
             sys.exit('error: --transport proxy requires --proxy URL (e.g. socks5://127.0.0.1:1080)')
         return args.proxy
+    if args.transport == 'obfs4':
+        bl = bridges.load()
+        if not bl:
+            ui.info('no bridges yet — requesting obfs4 bridges from torproject.org')
+            try:
+                bl = bridges.fetch_interactive()
+            except (RuntimeError, OSError, ValueError) as e:
+                sys.exit(f'error: {e}')
+            ui.ok(f'got {len(bl)} bridge(s), cached in {bridges.BRIDGES}')
+        tor.start(obfs4=True, bridges=bl)
+        return tor.socks_proxy()
     tor.start()
     return tor.socks_proxy()
 
@@ -105,8 +116,10 @@ def _forget_good(host, ip):
 
 
 def _open_with_retry(mgr, args):
-    if args.transport != 'tor':
+    if args.transport not in ('tor', 'obfs4'):
         return mgr.open(args.target)
+    use_obfs4 = args.transport == 'obfs4'
+    obfs4_bridges = bridges.load() if use_obfs4 else None
 
     host = urlparse(args.target).hostname or args.target
     good = (_good_exits().get(host) or [])[:3]
@@ -126,7 +139,8 @@ def _open_with_retry(mgr, args):
             ui.info(f'tor: trying {label}')
         with ui.spinner('connecting'):
             if nodes is not None or label == 'any exit':
-                tor.start(exit_nodes=nodes, strict=strict)
+                tor.start(exit_nodes=nodes, strict=strict, obfs4=use_obfs4,
+                          bridges=obfs4_bridges)
             if nodes and all(n.replace('.', '').isdigit() for n in nodes):
                 deadline = time.time() + 15
                 while time.time() < deadline:
@@ -180,19 +194,19 @@ def _run_session_loop(args, once=False):
 
     signal.signal(signal.SIGTERM, on_term)
     signal.signal(signal.SIGUSR1, on_usr1)
-    with ui.spinner('starting tor' if args.transport == 'tor' else 'preparing'):
+    with ui.spinner('starting tor' if args.transport in ('tor', 'obfs4') else 'preparing'):
         proxy = _proxy_for(args)
     mgr = session.Manager(headless=args.headless, proxy=proxy, keep_profiles=args.keep_profiles)
     state = {'last': time.time()}
 
     def rotate(reason):
-        if args.transport == 'tor':
+        if args.transport in ('tor', 'obfs4'):
             with ui.spinner('requesting new tor circuit'):
                 tor.newnym()
                 time.sleep(2)
         meta = _open_with_retry(mgr, args)
         state['last'] = time.time()
-        ip = tor.get_ip()[0] if args.transport == 'tor' else None
+        ip = tor.get_ip()[0] if args.transport in ('tor', 'obfs4') else None
         _save_state(sid=meta['sid'], target=args.target, since=state['last'], proxy=proxy,
                     reason=reason, ip=ip, transport=args.transport,
                     viewport=meta['viewport'], tz=meta['tz'], platform=meta['platform'],
@@ -301,6 +315,13 @@ def _wait_state_change(prev_since, timeout, label):
 def cmd_go(args):
     if not args.target.startswith(('http://', 'https://', 'file://')):
         sys.exit('error: target must be a full URL (https://...)')
+    if args.transport == 'obfs4' and not bridges.load():
+        ui.info('no bridges yet — requesting obfs4 bridges from torproject.org')
+        try:
+            got = bridges.fetch_interactive()
+        except (RuntimeError, OSError, ValueError, EOFError) as e:
+            sys.exit(f'error: {e}')
+        ui.ok(f'got {len(got)} bridge(s), cached in {bridges.BRIDGES}')
     if args.detach and not os.environ.get('GHOSTNET_DETACH'):
         prev = {}
         if STATE.exists():
@@ -369,14 +390,14 @@ def cmd_new(args):
     args.transport = args.transport or st.get('transport') or 'tor'
     if args.transport == 'proxy' and not args.proxy:
         args.proxy = st.get('proxy')
-    with ui.spinner('starting tor' if args.transport == 'tor' else 'preparing'):
+    with ui.spinner('starting tor' if args.transport in ('tor', 'obfs4') else 'preparing'):
         proxy = _proxy_for(args)
-        if args.transport == 'tor':
+        if args.transport in ('tor', 'obfs4'):
             tor.newnym()
             time.sleep(2)
     mgr = session.Manager(headless=args.headless, proxy=proxy, channel='chrome' if not args.firefox else 'firefox')
     meta = _open_with_retry(mgr, args)
-    ip = tor.get_ip()[0] if args.transport == 'tor' else None
+    ip = tor.get_ip()[0] if args.transport in ('tor', 'obfs4') else None
     _save_state(sid=meta['sid'], target=target, since=time.time(), proxy=proxy,
                 reason='manual', ip=ip, transport=args.transport,
                 viewport=meta['viewport'], tz=meta['tz'], platform=meta['platform'],
@@ -482,7 +503,7 @@ def main(argv=None):
     go.add_argument('--every', help='auto-rotate on interval, e.g. 25m, 90s, 1h')
     go.add_argument('--detect', help='regex watched on the page; rotate when it matches')
     go.add_argument('--no-watch', action='store_true', help='disable limit-message watching (plain fresh sessions)')
-    go.add_argument('--transport', choices=['tor', 'proxy', 'direct'], default='tor')
+    go.add_argument('--transport', choices=['tor', 'obfs4', 'proxy', 'direct'], default='tor')
     go.add_argument('--proxy', help='custom proxy URL for --transport proxy')
     go.add_argument('--headless', action='store_true', help='run browser without window')
     go.add_argument('--once', action='store_true', help='single session, no auto-rotate loop')
@@ -494,7 +515,7 @@ def main(argv=None):
 
     new = sub.add_parser('new', help='one-shot: new IP + fresh device session')
     new.add_argument('--target', default=None, help='URL to open')
-    new.add_argument('--transport', choices=['tor', 'proxy', 'direct'], default=None,
+    new.add_argument('--transport', choices=['tor', 'obfs4', 'proxy', 'direct'], default=None,
                      help='default: remember what "gn go" used (else tor)')
     new.add_argument('--proxy', help='custom proxy URL for --transport proxy')
     new.add_argument('--headless', action='store_true')
