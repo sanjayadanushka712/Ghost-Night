@@ -124,15 +124,17 @@ def _open_with_retry(mgr, args):
     for nodes, strict, label in strategies:
         if nodes is not None or label == 'any exit':
             ui.info(f'tor: trying {label}')
-            tor.start(exit_nodes=nodes, strict=strict)
-        if nodes and all(n.replace('.', '').isdigit() for n in nodes):
-            deadline = time.time() + 15
-            while time.time() < deadline:
-                cur = tor.get_ip()[0]
-                if cur in nodes:
-                    break
-                time.sleep(2)
-        meta = mgr.open(args.target)
+        with ui.spinner('connecting'):
+            if nodes is not None or label == 'any exit':
+                tor.start(exit_nodes=nodes, strict=strict)
+            if nodes and all(n.replace('.', '').isdigit() for n in nodes):
+                deadline = time.time() + 15
+                while time.time() < deadline:
+                    cur = tor.get_ip()[0]
+                    if cur in nodes:
+                        break
+                    time.sleep(2)
+            meta = mgr.open(args.target)
         blocked = meta.get('status') in (403, 429) or mgr.matches(r'Error: Forbidden|Access denied|403 Forbidden')
         if not blocked:
             if nodes is not None:
@@ -178,14 +180,16 @@ def _run_session_loop(args, once=False):
 
     signal.signal(signal.SIGTERM, on_term)
     signal.signal(signal.SIGUSR1, on_usr1)
-    proxy = _proxy_for(args)
+    with ui.spinner('starting tor' if args.transport == 'tor' else 'preparing'):
+        proxy = _proxy_for(args)
     mgr = session.Manager(headless=args.headless, proxy=proxy, keep_profiles=args.keep_profiles)
     state = {'last': time.time()}
 
     def rotate(reason):
         if args.transport == 'tor':
-            tor.newnym()
-            time.sleep(2)
+            with ui.spinner('requesting new tor circuit'):
+                tor.newnym()
+                time.sleep(2)
         meta = _open_with_retry(mgr, args)
         state['last'] = time.time()
         ip = tor.get_ip()[0] if args.transport == 'tor' else None
@@ -262,31 +266,36 @@ def _run_session_loop(args, once=False):
 
 def _wait_state_change(prev_since, timeout, label):
     """Spin until state.json shows a session newer than prev_since (or timeout)."""
-    ui.info(label)
     start = time.time()
-    while time.time() - start < timeout:
+    st = {}
+
+    def ready():
+        nonlocal st
         try:
             st = json.loads(STATE.read_text())
         except (FileNotFoundError, json.JSONDecodeError):
             st = {}
-        since = st.get('since')
-        if st.get('sid') and since and since != prev_since:
-            el = f'{time.time() - start:.0f}s'
-            ui.session_line({'sid': st['sid'],
-                             'platform': st.get('platform') or '-',
-                             'viewport': st.get('viewport') or '-',
-                             'tz': st.get('tz') or '-',
-                             'locale': st.get('locale') or '-'})
-            if st.get('ip'):
-                ui.ip_line(st['ip'])
-            ui.ok(f'ready in {el}')
-            return True
-        time.sleep(1)
-        dots = '.' * (1 + int(time.time() - start) % 3)
-        print(f'  {ui.c(ui.DIM, "working" + dots + " " * (4 - len(dots)))}', end='\r', flush=True)
-    print()
-    ui.warn(f'still not ready after {timeout}s — check: gn status')
-    return False
+        return bool(st.get('sid')) and bool(st.get('since')) and st['since'] != prev_since
+
+    found = False
+    with ui.spinner(label):
+        while time.time() - start < timeout:
+            if ready():
+                found = True
+                break
+            time.sleep(1)
+    if not found:
+        ui.warn(f'still not ready after {timeout}s — check: gn status')
+        return False
+    ui.session_line({'sid': st['sid'],
+                     'platform': st.get('platform') or '-',
+                     'viewport': st.get('viewport') or '-',
+                     'tz': st.get('tz') or '-',
+                     'locale': st.get('locale') or '-'})
+    if st.get('ip'):
+        ui.ip_line(st['ip'])
+    ui.ok(f'ready in {time.time() - start:.0f}s')
+    return True
 
 
 def cmd_go(args):
@@ -360,10 +369,11 @@ def cmd_new(args):
     args.transport = args.transport or st.get('transport') or 'tor'
     if args.transport == 'proxy' and not args.proxy:
         args.proxy = st.get('proxy')
-    proxy = _proxy_for(args)
-    if args.transport == 'tor':
-        tor.newnym()
-        time.sleep(2)
+    with ui.spinner('starting tor' if args.transport == 'tor' else 'preparing'):
+        proxy = _proxy_for(args)
+        if args.transport == 'tor':
+            tor.newnym()
+            time.sleep(2)
     mgr = session.Manager(headless=args.headless, proxy=proxy, channel='chrome' if not args.firefox else 'firefox')
     meta = _open_with_retry(mgr, args)
     ip = tor.get_ip()[0] if args.transport == 'tor' else None

@@ -1,5 +1,8 @@
 import os
 import sys
+import threading
+import time
+from contextlib import contextmanager
 
 from . import __version__
 
@@ -55,6 +58,35 @@ def warn(msg):
 
 def err(msg):
     print(c(RED, '  ✘ ') + msg, file=sys.stderr)
+
+
+@contextmanager
+def spinner(label):
+    """Animated 'label...' line that runs until the block exits."""
+    if not sys.stdout.isatty():
+        info(label)
+        yield
+        return
+    stop = threading.Event()
+
+    def frames():
+        i = 0
+        while not stop.is_set():
+            dots = '.' * (1 + i % 3)
+            sys.stdout.write('\r  ' + c(DIM, f'{label}{dots}'))
+            sys.stdout.flush()
+            i += 1
+            stop.wait(0.4)
+
+    t = threading.Thread(target=frames, daemon=True)
+    t.start()
+    try:
+        yield
+    finally:
+        stop.set()
+        t.join(timeout=1)
+        sys.stdout.write('\r' + ' ' * (len(label) + 8) + '\r')
+        sys.stdout.flush()
 
 
 def session_line(meta):
