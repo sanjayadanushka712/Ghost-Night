@@ -20,8 +20,6 @@ ghostnet turns one machine into many "devices" for testing how web applications 
 
 Built for **authorized pentesting**: rate-limit checks, trial/expiry controls, device- and IP-ban enforcement, anti-abuse logic.
 
-preview:https://drive.google.com/file/d/1VMZLD7_RlxjPKBVr9buRfhU_ZmayETO7/view?usp=sharing
-
 <img width="606" height="295" alt="image" src="https://github.com/user-attachments/assets/d85010bd-1176-45dc-9e67-8c88f912d2b3" />
 
 ## Demo
@@ -39,19 +37,6 @@ preview:https://drive.google.com/file/d/1VMZLD7_RlxjPKBVr9buRfhU_ZmayETO7/view?u
 | Canvas / WebGL fingerprint | deterministic-per-session noise (seeded) |
 
 **Does not defeat:** commercial hardware-bound fingerprinting (FingerprintJS Pro-class) at high confidence, account-tied limits, TLS/JA3 correlation. MAC-address rotation is intentionally out of scope — MAC is Layer-2 and never reaches internet servers.
-
-## Prohibited uses
-
-ghostnet exists to **test and protect** systems — not to abuse them. The following are explicitly out of scope and prohibited:
-
-- ❌ **Creating fake or multiple accounts** on platforms that forbid it
-- ❌ **Abusing free trials, referral programs, or coupons** — evading a quota you were given
-- ❌ **Bypassing bans or suspensions** you earned by violating a service's rules
-- ❌ **Spam, scraping at scale, credential stuffing, or brute force** against third-party systems
-- ❌ **Evading law enforcement or court orders**
-- ❌ **Testing systems you do not own or have written authorization to test**
-
-Using ghostnet for any of the above violates most services' terms of service and may be illegal in your jurisdiction. You are solely responsible for how you use this tool.
 
 ## Security & privacy
 
