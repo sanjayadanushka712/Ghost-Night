@@ -432,7 +432,13 @@ def cmd_verify(args):
     if not tor.is_running():
         ui.info('starting tor...')
         tor.start()
-    ip, is_tor = tor.get_ip()
+    ip, is_tor = None, False
+    with ui.spinner('checking exit ip'):
+        for _ in range(3):
+            ip, is_tor = tor.get_ip()
+            if ip:
+                break
+            time.sleep(2)
     ui.step('tor exit ip    ' + ui.c(ui.BRIGHT, str(ip)))
     if is_tor:
         ui.ok('tor verified — traffic is going through the tor network')

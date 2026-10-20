@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-1.1.0-46d746">
+  <img alt="version" src="https://img.shields.io/badge/version-1.2.0-46d746">
   <img alt="license" src="https://img.shields.io/badge/license-GPL--3.0-46d746">
   <img alt="platform" src="https://img.shields.io/badge/platform-Linux-lightgrey">
   <img alt="tor" src="https://img.shields.io/badge/transport-Tor%20%7C%20proxy%20%7C%20direct-46d746">
@@ -22,6 +22,9 @@ Built for **authorized pentesting**: rate-limit checks, trial/expiry controls, d
 
 <img width="606" height="295" alt="image" src="https://github.com/user-attachments/assets/d85010bd-1176-45dc-9e67-8c88f912d2b3" />
 
+## Demo
+
+🎥 **Watch the walkthrough:** [ghostnet demo video](https://drive.google.com/file/d/1VMZLD7_RlxjPKBVr9buRfhU_ZmayETO7/view?usp=sharing)
 
 ## What it defeats
 
@@ -34,6 +37,28 @@ Built for **authorized pentesting**: rate-limit checks, trial/expiry controls, d
 | Canvas / WebGL fingerprint | deterministic-per-session noise (seeded) |
 
 **Does not defeat:** commercial hardware-bound fingerprinting (FingerprintJS Pro-class) at high confidence, account-tied limits, TLS/JA3 correlation. MAC-address rotation is intentionally out of scope — MAC is Layer-2 and never reaches internet servers.
+
+## Prohibited uses
+
+ghostnet exists to **test and protect** systems — not to abuse them. The following are explicitly out of scope and prohibited:
+
+- ❌ **Creating fake or multiple accounts** on platforms that forbid it
+- ❌ **Abusing free trials, referral programs, or coupons** — evading a quota you were given
+- ❌ **Bypassing bans or suspensions** you earned by violating a service's rules
+- ❌ **Spam, scraping at scale, credential stuffing, or brute force** against third-party systems
+- ❌ **Evading law enforcement or court orders**
+- ❌ **Testing systems you do not own or have written authorization to test**
+
+Using ghostnet for any of the above violates most services' terms of service and may be illegal in your jurisdiction. You are solely responsible for how you use this tool.
+
+## Security & privacy
+
+- **Local-only** — ghostnet has no server, no telemetry, no phone-home. Everything (state, logs, profiles) stays in `~/.config/ghostnet/` and `~/.local/share/ghostnet/`.
+- **Profiles are deleted on rotation** — each browser profile (cookies, storage) is wiped when the next identity starts; use `--keep-profiles` only if you need forensic artifacts.
+- **Evidence log may contain sensitive data** — `log.jsonl` records IPs, fingerprints, and timestamps of your sessions. Treat it like test evidence: don't share it publicly, delete it when the engagement ends (`gn off` clears state, remove the log manually if needed).
+- **Tor exit nodes can read unencrypted traffic** — never send passwords, tokens, or personal data over plain `http://` through Tor. HTTPS is encrypted end-to-end even via exits.
+- **ghostnet does not anonymize YOU against the network operator** — your ISP/employer can see you're using Tor; Tor traffic itself is visible (though content is encrypted). For that class of threat use a VPN/Tails — not this tool.
+- **Fingerprint noise is best-effort** — it defeats casual cross-session tracking, not a motivated adversary running FingerprintJS Pro-class stacking.
 
 ## Dependencies
 
@@ -159,9 +184,15 @@ gn new --target https://other-site.com       # switch sites
 
 ## Changelog
 
+### v1.2.0
+- `gn go --detach` — session loop in the background; `gn new` / `gn status` / `gn off` work live from any terminal (no Ctrl+C needed)
+- `gn new` on a running loop rotates it in place (SIGUSR1) instead of opening a competing session
+- Live progress: spinner on every connect phase (tor start, NEWNYM, exit-pin wait, page load) + waits until the session is really up before returning
+- Demo video, Prohibited uses, and Security & privacy sections added to this README
+- `gn verify` retries the exit-ip check instead of failing on a slow first circuit
+
 ### v1.1.0
 - Self-contained IP rotation — no VPN needed
-- `gn go --detach` — session loop runs in the background; `gn new` / `gn status` / `gn off` work live from any terminal (no Ctrl+C needed)
 - Exit-strategy ladder: proven exits → country rotation → any exit → direct fallback
 - Tor config changes applied via SIGHUP reload (~2s, no re-bootstrap)
 - `NEWNYM` throttled to Tor's 10s rate limit — no stale-circuit leaks
