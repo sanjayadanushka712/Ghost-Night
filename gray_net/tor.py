@@ -6,7 +6,7 @@ import subprocess
 import time
 from pathlib import Path
 
-CONF = Path.home() / '.config' / 'ghostnet'
+CONF = Path.home() / '.config' / 'gray_net'
 DATA = CONF / 'data'
 TORRC = CONF / 'torrc'
 PIDFILE = CONF / 'tor.pid'

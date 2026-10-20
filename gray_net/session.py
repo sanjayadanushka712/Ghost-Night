@@ -6,7 +6,7 @@ import subprocess
 import time
 from pathlib import Path
 
-SESSIONS = Path.home() / '.local' / 'share' / 'ghostnet' / 'sessions'
+SESSIONS = Path.home() / '.local' / 'share' / 'gray_net' / 'sessions'
 
 UA_OS = {
     'win': ('Windows NT 10.0; Win64; x64', 'Win32', 'Windows'),
@@ -255,7 +255,7 @@ class Manager:
             'seed': seed, 'target': target, 'proxy': self.proxy,
             'status': status,
         }
-        (path / 'ghostnet.json').write_text(json.dumps(meta))
+        (path / 'gray_net.json').write_text(json.dumps(meta))
         return meta
 
     def matches(self, pattern):
