@@ -167,6 +167,8 @@ gn go URL --every 25m                        # timed rotation
 gn go URL --once                             # single session
 gn go URL --detach                           # background loop; control with gn new/status/off
 gn go URL --human                            # human-like mouse/scroll activity on load
+gn go URL --human deep --human-minutes 5     # full behavioral engine: Fitts targeting, scroll momentum, reading dwell, idle drift
+gn go URL --behavioral                       # alias for --human deep
 gn go URL --firefox                          # real Firefox identity (not Chrome in disguise)
 gn go URL --firefox --headless --keep-profiles
 gn new --target https://other-site.com       # switch sites
@@ -205,6 +207,7 @@ gn test --transport tor,obfs4,direct         # self-check fingerprinting across 
 - **Cross-layer geo coherence** — when using Tor/obfs4, Ghost Night looks up the exit IP's country and picks a device profile whose timezone+locale fit it, so a Germany exit no longer pairs with an `America/New_York` profile (no IP-geo ↔ timezone contradiction)
 - **`gn doctor`** — one-shot environment diagnosis (tor, obfs4proxy, bridges, browsers, curl, venv, config/data dirs), so you know what's missing before a test
 - **`gn test`** — self-check that launches each engine × transport and scores fingerprinting on bot.sannysoft.com, printing a pass/fail report
+- **Behavioral engine** (`--human deep` / `--behavioral`) — models motor control and reading instead of flat randomness: Fitts's-law targeting (move time scales with distance ÷ target size), ballistic overshoot + micro-correction, scroll momentum (accelerate → cruise → decelerate), reading dwell proportional to content density, occasional clicks on real elements, and idle micro-drift — all paced with slight fatigue over the session
 - **`--json` mode** — `status`, `verify`, `doctor`, and `test` emit machine-readable JSON for scripting/CI
 - Renamed project to **Ghost Night** (was ghostnet)
 

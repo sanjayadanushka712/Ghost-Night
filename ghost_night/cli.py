@@ -140,6 +140,17 @@ def _human_warmup(mgr):
         pass
 
 
+def _behavioral_warmup(mgr, minutes):
+    """full behavioral engine: Fitts targeting, scroll momentum, reading dwell,
+    idle drift, occasional clicks — paced with slight fatigue over the window."""
+    try:
+        page = mgr.context.pages[0]
+        ui.info('behavioral engine: simulating human browsing (%.1fm)' % minutes)
+        mgr.behavioral_session(page, minutes=minutes)
+    except Exception:
+        pass
+
+
 def _apply_geo(mgr, args):
     if args.transport in ('tor', 'obfs4'):
         try:
@@ -261,8 +272,10 @@ def _run_session_loop(args, once=False):
         ui.session_line(meta)
         if ip:
             ui.ip_line(ip)
-        if getattr(args, 'human', False) and mgr.is_open():
+        if (getattr(args, 'human', None) or getattr(args, 'behavioral', False)) and mgr.is_open():
             _human_warmup(mgr)
+            if getattr(args, 'behavioral', False) or args.human == 'deep':
+                _behavioral_warmup(mgr, getattr(args, 'human_minutes', 3.0))
 
     interval = parse_every(args.every) if args.every else None
     if getattr(args, 'no_watch', False):
@@ -693,8 +706,12 @@ def main(argv=None):
     go.add_argument('--once', action='store_true', help='single session, no auto-rotate loop')
     go.add_argument('--keep-profiles', action='store_true', help='do not delete profiles on rotate')
     go.add_argument('--firefox', action='store_true', help='use Firefox channel instead of Chrome')
-    go.add_argument('--human', action='store_true',
-                    help='add human-like mouse/scroll activity on load (slower, stealthier)')
+    go.add_argument('--human', nargs='?', const='basic', choices=['basic', 'deep'],
+                    help='human-like activity on load; pass "deep" for the full behavioral engine')
+    go.add_argument('--behavioral', action='store_true',
+                    help='alias for --human deep (Fitts targeting, scroll momentum, reading dwell, idle drift)')
+    go.add_argument('--human-minutes', type=float, default=3.0, metavar='N',
+                    help='how long the behavioral engine browses per session (default 3)')
     go.add_argument('--detach', action='store_true',
                     help='run the session loop in the background; control with gn new / gn status / gn off')
     go.set_defaults(func=cmd_go)

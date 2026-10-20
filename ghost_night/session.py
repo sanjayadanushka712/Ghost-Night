@@ -704,6 +704,31 @@ class Manager:
         # ease-in-out cubic — non-linear speed, unlike teleporting bots
         return 4 * p * p * p if p < 0.5 else 1 - pow(-2 * p + 2, 3) / 2
 
+    def _fitts_duration(self, dist, target=40.0):
+        # Fitts's law: T = a + b*log2(2D/W + 1), clamped to human timing (s)
+        import math
+        d = max(1.0, dist)
+        w = max(8.0, target)
+        return min(2.2, max(0.10, 0.09 + 0.11 * math.log2(2 * d / w + 1)))
+
+    def _bezier_move(self, page, x0, y0, x, y, steps, jitter=1.0, dur=None):
+        import math
+        dist = math.hypot(x - x0, y - y0)
+        steps = steps or max(6, min(50, int(dist / 10)))
+        cx = (x0 + x) / 2 + random.uniform(-dist * 0.18, dist * 0.18)
+        cy = (y0 + y) / 2 + random.uniform(-dist * 0.18, dist * 0.18)
+        total = dur if dur is not None else self._fitts_duration(dist)
+        for i in range(1, steps + 1):
+            t = self._ease(i / steps)
+            bx = (1 - t) ** 2 * x0 + 2 * (1 - t) * t * cx + t * t * x
+            by = (1 - t) ** 2 * y0 + 2 * (1 - t) * t * cy + t * t * y
+            jx = bx + random.uniform(-jitter, jitter)
+            jy = by + random.uniform(-jitter, jitter)
+            page.mouse.move(jx, jy)
+            page.evaluate('(p) => { window.__gn_mx = p.x; window.__gn_my = p.y; }',
+                          {'x': jx, 'y': jy})
+            time.sleep(max(0.001, total / steps * random.uniform(0.7, 1.3)))
+
     def human_mouse(self, page, x, y, steps=None):
         import math
         try:
@@ -712,22 +737,127 @@ class Manager:
             start = {'x': 0, 'y': 0}
         x0, y0 = float(start.get('x', 0)), float(start.get('y', 0))
         dist = math.hypot(x - x0, y - y0)
-        steps = steps or max(6, min(40, int(dist / 12)))
-        # a bowed path, not a straight line, with per-step jitter
-        cx = (x0 + x) / 2 + random.uniform(-dist * 0.15, dist * 0.15)
-        cy = (y0 + y) / 2 + random.uniform(-dist * 0.15, dist * 0.15)
-        for i in range(1, steps + 1):
-            t = self._ease(i / steps)
-            bx = (1 - t) ** 2 * x0 + 2 * (1 - t) * t * cx + t * t * x
-            by = (1 - t) ** 2 * y0 + 2 * (1 - t) * t * cy + t * t * y
-            jx = bx + random.uniform(-1.2, 1.2)
-            jy = by + random.uniform(-1.2, 1.2)
-            page.mouse.move(jx, jy)
-            page.evaluate('(p) => { window.__gn_mx = p.x; window.__gn_my = p.y; }',
-                          {'x': jx, 'y': jy})
-            time.sleep(random.uniform(0.008, 0.028))
+        # ballistic overshoot then a corrective micro-move (human motor control)
+        if dist > 120 and random.random() < 0.6:
+            ox = x + (x - x0) / dist * random.uniform(6, 22)
+            oy = y + (y - y0) / dist * random.uniform(6, 22)
+            self._bezier_move(page, x0, y0, ox, oy, steps)
+            time.sleep(random.uniform(0.05, 0.14))
+            self._bezier_move(page, ox, oy, x, y,
+                              max(3, int(dist * 0.05)), jitter=0.8,
+                              dur=random.uniform(0.08, 0.22))
+        else:
+            self._bezier_move(page, x0, y0, x, y, steps)
         page.evaluate('(p) => { window.__gn_mx = p.x; window.__gn_my = p.y; }',
                       {'x': x, 'y': y})
+
+    def human_scroll(self, page, amount=None, momentum=True):
+        """Scroll with momentum: accelerate, cruise, decelerate — like a wheel
+        or trackpad, not a single instantaneous jump."""
+        try:
+            window_h = (page.viewport_size or {}).get('height', 800)
+        except Exception:
+            window_h = 800
+        target = amount if amount is not None else random.choice(
+            [random.randint(120, 400), random.randint(400, 900),
+             random.randint(900, 1800)])
+        direction = 1 if target >= 0 else -1
+        remaining = abs(target)
+        speed = random.uniform(40, 90)
+        accel = random.uniform(1.1, 1.6)
+        while remaining > 0:
+            step = min(remaining, speed)
+            page.mouse.wheel(0, direction * step)
+            remaining -= step
+            if momentum:
+                # cruise then slow on the tail
+                if remaining < 120:
+                    speed = max(8, speed * random.uniform(0.5, 0.75))
+                else:
+                    speed = min(260, speed * accel)
+            time.sleep(random.uniform(0.012, 0.05))
+        return abs(target)
+
+    def _read_dwell(self, page):
+        """Pause proportional to how much readable content is in view."""
+        try:
+            density = page.evaluate("""() => {
+              const t = document.body ? document.body.innerText || '' : '';
+              return Math.min(4000, t.length);
+            }""")
+        except Exception:
+            density = 800
+        base = 0.6 + density / 2200.0
+        return max(0.4, min(6.0, base * random.uniform(0.6, 1.4)))
+
+    def behavioral_session(self, page, minutes=3.0, click_prob=0.35):
+        """Run a human-like browsing loop for a while: read, scroll, move,
+        occasionally click, drift when idle. Pacing slows slightly over time."""
+        import math
+        deadline = time.time() + minutes * 60
+        try:
+            size = page.viewport_size or {'width': 1280, 'height': 800}
+        except Exception:
+            size = {'width': 1280, 'height': 800}
+        w, h = size['width'], size['height']
+        elapsed0 = time.time()
+        while time.time() < deadline:
+            frac = (time.time() - elapsed0) / max(1.0, minutes * 60)
+            # fatigue: gaps widen as the session progresses
+            pace = 1.0 + frac * random.uniform(0.2, 0.6)
+            act = random.random()
+            if act < 0.35:
+                # read: small settling moves + dwell
+                self.human_mouse(page, random.uniform(w * 0.1, w * 0.9),
+                                 random.uniform(h * 0.15, h * 0.7))
+                time.sleep(self._read_dwell(page) * pace)
+            elif act < 0.7:
+                self.human_scroll(page)
+                time.sleep(random.uniform(0.3, 1.2) * pace)
+            elif act < 0.85:
+                # idle micro-drift
+                try:
+                    cur = page.evaluate("() => ({x: window.__gn_mx||0, y: window.__gn_my||0})")
+                except Exception:
+                    cur = {'x': w / 2, 'y': h / 2}
+                self._bezier_move(page, cur['x'], cur['y'],
+                                  cur['x'] + random.uniform(-14, 14),
+                                  cur['y'] + random.uniform(-14, 14),
+                                  steps=random.randint(3, 6), jitter=0.4)
+                time.sleep(random.uniform(0.4, 1.8) * pace)
+            else:
+                if random.random() < click_prob:
+                    self._behavioral_click(page)
+                time.sleep(random.uniform(0.2, 0.9) * pace)
+        return True
+
+    def _behavioral_click(self, page):
+        """Click a plausible target (a visible link/button) near where the
+        cursor already is, using Fitts-sized targeting."""
+        try:
+            targets = page.evaluate("""() => {
+              const out = [];
+              const els = document.querySelectorAll('a, button, [role=button], input[type=submit]');
+              for (const e of els) {
+                const r = e.getBoundingClientRect();
+                if (r.width > 8 && r.height > 8 && r.top > 0 && r.top < innerHeight) {
+                  out.push({x: r.left + r.width/2, y: r.top + r.height/2, w: r.width});
+                }
+              }
+              return out;
+            }""")
+        except Exception:
+            targets = []
+        if not targets:
+            return False
+        t = random.choice(targets)
+        self.human_mouse(page, t['x'], t['y'])
+        time.sleep(random.uniform(0.05, 0.18))
+        page.mouse.down()
+        time.sleep(random.uniform(0.05, 0.13))
+        page.mouse.up()
+        return True
+
 
     def human_click(self, page, selector):
         try:
