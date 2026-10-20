@@ -46,15 +46,18 @@ def _save_state(**kw):
 
 
 def _proxy_for(args):
+    args._proxy_country = None
     if args.transport == 'direct':
         return None
     if args.transport == 'proxy':
         pool = getattr(args, 'proxy_pool', None)
         if pool:
             try:
-                return proxies.pick(pool)
+                url, country = proxies.pick(pool)
             except RuntimeError as e:
                 sys.exit(f'error: {e}')
+            args._proxy_country = country
+            return url
         if not args.proxy:
             sys.exit('error: --transport proxy requires --proxy URL (e.g. socks5://127.0.0.1:1080)')
         return args.proxy
@@ -138,13 +141,14 @@ def _human_warmup(mgr):
 
 
 def _apply_geo(mgr, args):
-    if args.transport not in ('tor', 'obfs4'):
-        mgr.geo_country = None
+    if args.transport in ('tor', 'obfs4'):
+        try:
+            mgr.geo_country = tor.exit_country()
+        except Exception:
+            mgr.geo_country = None
         return
-    try:
-        mgr.geo_country = tor.exit_country()
-    except Exception:
-        mgr.geo_country = None
+    # proxy transport: use the pool line's country tag if present
+    mgr.geo_country = getattr(args, '_proxy_country', None)
 
 
 def _open_with_retry(mgr, args):
@@ -242,7 +246,7 @@ def _run_session_loop(args, once=False):
                 tor.newnym()
                 time.sleep(2)
         if args.transport == 'proxy' and getattr(args, 'proxy_pool', None):
-            proxy = proxies.pick(args.proxy_pool)
+            proxy, args._proxy_country = proxies.pick(args.proxy_pool)
             mgr.proxy = proxy
         meta = _open_with_retry(mgr, args)
         state['last'] = time.time()
@@ -478,6 +482,15 @@ def cmd_status(args):
     st = json.loads(STATE.read_text()) if STATE.exists() else {}
     n = len(list(session.SESSIONS.glob('*'))) if session.SESSIONS.exists() else 0
     loop = f"running · pid {GN_PID.read_text().strip()}" if GN_PID.exists() else 'not running'
+    if getattr(args, 'json', False):
+        print(json.dumps({
+            'tor': {'running': tor.is_running(), 'row': tor_row[0]},
+            'session': st.get('sid'), 'target': st.get('target'),
+            'exit_ip': st.get('ip'), 'transport': st.get('transport'),
+            'loop': GN_PID.read_text().strip() if GN_PID.exists() else None,
+            'profiles': n, 'events': tail(5),
+        }))
+        return
     ui.panel('ghost_night', [
         ('tor', tor_row[0], tor_row[1]),
         ('session', st.get('sid') or '-', ui.BRIGHT if st.get('sid') else None),
@@ -494,10 +507,13 @@ def cmd_status(args):
 
 
 def cmd_verify(args):
+    as_json = getattr(args, 'json', False)
+    if as_json:
+        ui.set_quiet(True)
     real = tor.real_ip()
-    ui.step('real ip        ' + ui.c(ui.BRIGHT, str(real)))
     if not tor.is_running():
-        ui.info('starting tor...')
+        if not as_json:
+            ui.info('starting tor...')
         tor.start()
     ip, is_tor = None, False
     with ui.spinner('checking exit ip'):
@@ -506,13 +522,134 @@ def cmd_verify(args):
             if ip:
                 break
             time.sleep(2)
+    leak = bool(ip and real and ip == real)
+    if as_json:
+        ui.set_quiet(False)
+        print(json.dumps({'real_ip': real, 'exit_ip': ip, 'is_tor': is_tor, 'leak': leak}))
+        return
+    ui.step('real ip        ' + ui.c(ui.BRIGHT, str(real)))
     ui.step('tor exit ip    ' + ui.c(ui.BRIGHT, str(ip)))
     if is_tor:
         ui.ok('tor verified — traffic is going through the tor network')
     else:
         ui.warn('tor not verified')
-    if ip and real and ip == real:
+    if leak:
         ui.err('exit ip equals real ip — traffic is NOT going through tor')
+
+
+def cmd_doctor(args):
+    rows = []
+    ok_all = True
+
+    def add(name, good, detail):
+        nonlocal ok_all
+        if not good:
+            ok_all = False
+        rows.append((name, detail, ui.GREEN if good else ui.RED))
+
+    # tor binary
+    tor_bin = shutil.which('tor')
+    add('tor', bool(tor_bin), tor_bin or 'not found — install tor')
+    # obfs4proxy
+    obfs_bin = shutil.which('obfs4proxy')
+    add('obfs4proxy', bool(obfs_bin),
+        obfs_bin or 'not found (optional) — arch: yay -S obfs4proxy')
+    # bridges
+    bl = bridges.load()
+    add('bridges', bool(bl), f'{len(bl)} cached' if bl else 'none yet (fetch on first obfs4 run)')
+    # curl
+    curl_bin = shutil.which('curl')
+    add('curl', bool(curl_bin), curl_bin or 'not found — install curl')
+    # browsers
+    chrome = (shutil.which('google-chrome-stable') or shutil.which('google-chrome')
+              or shutil.which('chromium'))
+    add('chrome', bool(chrome), chrome or 'not found — install google-chrome/chromium')
+    ff = session._playwright_firefox_bin()
+    add('firefox', bool(ff), ff or 'not installed — run: python -m playwright install firefox')
+    # venv python
+    venv = Path.home() / '.local' / 'share' / 'ghost_night' / 'venv' / 'bin' / 'python'
+    add('venv', venv.exists(), str(venv) if venv.exists() else 'missing — re-run install.sh')
+    # config dirs
+    for label, path in (('config', CONF), ('data', session.SESSIONS.parent)):
+        add(label, path.exists(), str(path) if path.exists() else f'missing: {path}')
+    # tor running state
+    if tor_bin:
+        running = tor.is_running()
+        add('tor daemon', True,
+            ('running · bootstrap ' + ('done' if tor.bootstrap_done() else 'in progress'))
+            if running else 'stopped (starts on demand)')
+
+    if getattr(args, 'json', False):
+        print(json.dumps({'ok': ok_all, 'checks': [
+            {'name': n, 'ok': col == ui.GREEN, 'detail': d} for n, d, col in rows]}))
+        return
+    ui.panel('gn doctor', rows)
+    if ok_all:
+        ui.ok('environment looks good')
+    else:
+        ui.warn('some checks failed — see red rows above')
+
+
+def cmd_test(args):
+    targets = []
+    if not args.firefox_only:
+        targets.append('chrome')
+    if not args.chrome_only:
+        targets.append('firefox')
+    transports = args.transport.split(',') if args.transport else ['direct']
+    as_json = getattr(args, 'json', False)
+    report = []
+    if as_json:
+        ui.set_quiet(True)
+    if not as_json:
+        ui.step(f'testing engines={targets} transports={transports}')
+    for tport in transports:
+        for eng in targets:
+            label = f'{eng}/{tport}'
+            if as_json:
+                rec = _run_one_test(eng, tport)
+            else:
+                with ui.spinner(f'{label}: launching'):
+                    rec = _run_one_test(eng, tport)
+                print('  ' + ui.c(ui.GREEN if rec.get('ok') else ui.RED,
+                                  '✔ ' if rec.get('ok') else '✘ ') + label
+                      + ui.c(ui.DIM, '   ' + rec.get('detail', '')))
+            report.append((label, rec))
+    if as_json:
+        ui.set_quiet(False)
+        print(json.dumps([{'label': l, **r} for l, r in report], indent=2))
+        return
+    good = sum(1 for _, r in report if r.get('ok'))
+    ui.info(f'{good}/{len(report)} combinations passed')
+
+
+def _run_one_test(engine, transport):
+    args = argparse.Namespace(transport=transport, target='https://bot.sannysoft.com/',
+                              proxy=None, proxy_pool=None, headless=True)
+    mgr = session.Manager(headless=True, channel=engine)
+    try:
+        proxy = None
+        if transport in ('tor', 'obfs4'):
+            proxy = _proxy_for(args)
+        mgr.proxy = proxy
+        meta = _open_with_retry(mgr, args)
+        page = mgr.context.pages[0]
+        page.wait_for_timeout(3500)
+        res = page.evaluate(
+            """() => {const o={};for(const tr of document.querySelectorAll('table tr'))"""
+            """{const t=tr.querySelectorAll('td');if(t.length<2)continue;"""
+            """o[t[0].innerText.trim().replace(/\\n/g,' ')]=t[1].innerText.trim();}return o;}""")
+        fails = [k for k, v in res.items() if 'fail' in str(v).lower()
+                 and k != 'Chrome (New)']
+        return {'ok': not fails, 'detail': f'{len(res)} checks · {len(fails)} fail'
+                + (f' {fails}' if fails else '')}
+    except Exception as e:
+        return {'ok': False, 'detail': f'{type(e).__name__}: {e}'}
+    finally:
+        try:
+            mgr.stop()
+        except Exception:
+            pass
 
 
 def cmd_off(args):
@@ -573,14 +710,27 @@ def main(argv=None):
     new.set_defaults(func=cmd_new)
 
     st = sub.add_parser('status', help='show current state')
+    st.add_argument('--json', action='store_true', help='machine-readable output')
     st.set_defaults(func=cmd_status)
 
     ver = sub.add_parser('verify', help='check tor connection and exit ip')
+    ver.add_argument('--json', action='store_true', help='machine-readable output')
     ver.set_defaults(func=cmd_verify)
 
     off = sub.add_parser('off', help='stop everything and clean up')
     off.add_argument('--keep-profiles', action='store_true')
     off.set_defaults(func=cmd_off)
+
+    doc = sub.add_parser('doctor', help='diagnose the environment (deps, browsers, bridges)')
+    doc.add_argument('--json', action='store_true', help='machine-readable output')
+    doc.set_defaults(func=cmd_doctor)
+
+    tst = sub.add_parser('test', help='self-check: launch engines/transports and score fingerprinting')
+    tst.add_argument('--transport', help='comma list: tor,obfs4,proxy,direct (default: direct)')
+    tst.add_argument('--chrome-only', action='store_true')
+    tst.add_argument('--firefox-only', action='store_true')
+    tst.add_argument('--json', action='store_true', help='machine-readable output')
+    tst.set_defaults(func=cmd_test)
 
     args = p.parse_args(argv)
     try:

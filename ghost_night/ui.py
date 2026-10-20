@@ -15,9 +15,16 @@ RED = '\033[38;5;203m'
 RESET = '\033[0m'
 BOLD = '\033[1m'
 
+_QUIET = False
+
+
+def set_quiet(on):
+    global _QUIET
+    _QUIET = bool(on)
+
 
 def _tty():
-    return sys.stdout.isatty() and not os.environ.get('NO_COLOR')
+    return sys.stdout.isatty() and not os.environ.get('NO_COLOR') and not _QUIET
 
 
 def c(color, text):
@@ -41,18 +48,26 @@ def banner():
 
 
 def step(msg):
+    if _QUIET:
+        return
     print(c(GREEN, '  ➜ ') + msg)
 
 
 def ok(msg):
+    if _QUIET:
+        return
     print(c(GREEN, '  ✔ ') + msg)
 
 
 def info(msg):
+    if _QUIET:
+        return
     print(c(DIM, '  » ') + msg)
 
 
 def warn(msg):
+    if _QUIET:
+        return
     print(c(YELLOW, '  ! ') + msg)
 
 
@@ -63,6 +78,9 @@ def err(msg):
 @contextmanager
 def spinner(label):
     """Animated 'label...' line that runs until the block exits."""
+    if _QUIET:
+        yield
+        return
     if not sys.stdout.isatty():
         info(label)
         yield

@@ -120,8 +120,12 @@ gn new                          # continue as a brand-new user on the same site
                                 # (if a loop is running, it rotates that loop — no Ctrl+C needed)
 gn status                       # tor, current session, recent events
 gn verify                       # check tor (real ip vs exit ip)
+gn doctor                       # diagnose env: deps, browsers, bridges, venv
+gn test                         # self-check: launch each engine/transport and score fingerprinting
 gn off                          # stop everything, clean up
 ```
+
+`status`, `verify`, `doctor`, and `test` accept `--json` for scripting.
 
 ## Per-site behavior
 
@@ -166,6 +170,8 @@ gn go URL --human                            # human-like mouse/scroll activity 
 gn go URL --firefox                          # real Firefox identity (not Chrome in disguise)
 gn go URL --firefox --headless --keep-profiles
 gn new --target https://other-site.com       # switch sites
+gn status --json                             # machine-readable state (also verify/doctor/test)
+gn test --transport tor,obfs4,direct         # self-check fingerprinting across engines/transports
 ```
 
 ## How a rotation works
@@ -178,7 +184,7 @@ gn new --target https://other-site.com       # switch sites
 
 ## Files
 
-- `~/.config/ghost_night/` — tor config, control cookie, logs, proven-exit cache (`good_exits.json`), obfs4 bridges (`bridges.txt`), proxy pool (`proxies.txt` — default location if you omit `--proxy-pool`)
+- `~/.config/ghost_night/` — tor config, control cookie, logs, proven-exit cache (`good_exits.json`), obfs4 bridges (`bridges.txt`), proxy pool (`proxies.txt` — default location if you omit `--proxy-pool`; optional `cc=XX` country tag per line)
 - `~/.local/share/ghost_night/sessions/` — live browser profiles (deleted on rotate)
 - `~/.local/share/ghost_night/log.jsonl` — rotation history (IP, fingerprint, timestamp)
 
@@ -195,8 +201,11 @@ gn new --target https://other-site.com       # switch sites
 - WebGPU adapter vendor/architecture spoofed to match the profile's GPU; deterministic audio-context fingerprint noise
 - **`--transport obfs4`** — Tor over obfs4 bridges: ISP/DPI sees random bytes, not Tor. First use fetches bridges from torproject.org (captcha shown once, bridges cached in `~/.config/ghost_night/bridges.txt`)
 - **Coherent Firefox profiles** — `--firefox` now runs a real Firefox identity, not a Chrome body with a Firefox UA: Firefox-formatted UA drawn from the installed binary, matching platform/cores/timezone/locale/WebGL, and Firefox privacy-hardening `user_prefs` (telemetry/webdriver/beacon off). The `navigator` surface is now **engine-aware** too — no `window.chrome` shim, empty `navigator.vendor`, no `deviceMemory`, and a real `PDF.js` plugin in a native `PluginArray` — so a Firefox session doesn't leak Chrome-only tells. Fails only the `Chrome (New)` probe, which a genuine Firefox *should* fail
-- **Proxy-pool rotation** — `--transport proxy --proxy-pool proxies.txt` picks a fresh proxy from a file (one URL per line, `#` comments allowed) on every session *and* every rotation; the pool is remembered so `gn new` keeps rotating through it
+- **Proxy-pool rotation** — `--transport proxy --proxy-pool proxies.txt` picks a fresh proxy from a file (one URL per line, `#` comments allowed) on every session *and* every rotation; the pool is remembered so `gn new` keeps rotating through it. Tag a line with a country (`socks5://host:1080 cc=DE` or `socks5://host:1080|DE`) and the profile's timezone+locale are matched to it
 - **Cross-layer geo coherence** — when using Tor/obfs4, Ghost Night looks up the exit IP's country and picks a device profile whose timezone+locale fit it, so a Germany exit no longer pairs with an `America/New_York` profile (no IP-geo ↔ timezone contradiction)
+- **`gn doctor`** — one-shot environment diagnosis (tor, obfs4proxy, bridges, browsers, curl, venv, config/data dirs), so you know what's missing before a test
+- **`gn test`** — self-check that launches each engine × transport and scores fingerprinting on bot.sannysoft.com, printing a pass/fail report
+- **`--json` mode** — `status`, `verify`, `doctor`, and `test` emit machine-readable JSON for scripting/CI
 - Renamed project to **Ghost Night** (was ghostnet)
 
 ### v1.2.0
@@ -229,7 +238,7 @@ Contributions welcome — this tool gets better with use:
 - **Detection packs**: PRs with `--detect` patterns for known apps (helpful, no app-specific code in core)
 - **Transports**: QUIC/HTTP3 proxies, WireGuard rotation, containerized exits
 - **Fingerprinting**: font-consistency models, audio-context noise tuning, WebGPU/WebGL2 surfaces
-- **Transports**: uTLS/JA3-client spoofing for TLS-terminating (`http://`) proxies, per-country proxy-pool geo tagging
+- **Transports**: uTLS/JA3-client spoofing for TLS-terminating (`http://`) proxies, proxy health-check/geo-tagging tools
 - **Ops**: better status views, JSON output mode, systemd units
 
 Workflow: fork → feature branch → PR. Keep the core dependency-light (stdlib + playwright); no app-specific logic in core.
