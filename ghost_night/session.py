@@ -61,6 +61,55 @@ PROFILES = [
          gpu=('Google Inc. (AMD)', 'ANGLE (AMD, AMD Radeon RX 570 Series (navi14), OpenGL 4.6 (Core Profile) Mesa 23.2.1)')),
 ]
 
+# plausible plugin/font sets per OS — a Windows profile that reports Linux
+# fonts or zero plugins is an instant automation tell
+FONTS = {
+    'win': ['Arial', 'Arial Black', 'Bahnschrift', 'Calibri', 'Cambria', 'Cambria Math',
+            'Candara', 'Comic Sans MS', 'Consolas', 'Constantia', 'Corbel', 'Courier New',
+            'Ebrima', 'Franklin Gothic Medium', 'Gabriola', 'Gadugi', 'Georgia', 'Impact',
+            'Ink Free', 'Javanese Text', 'Leelawadee UI', 'Lucida Console', 'Lucida Sans Unicode',
+            'Malgun Gothic', 'Marlett', 'Microsoft Himalaya', 'Microsoft JhengHei',
+            'Microsoft New Tai Lue', 'Microsoft PhagsPa', 'Microsoft Sans Serif',
+            'Microsoft Tai Le', 'Microsoft YaHei', 'MingLiU-ExtB', 'Mongolian Baiti',
+            'MS Gothic', 'MV Boli', 'Myanmar Text', 'Nirmala UI', 'Palatino Linotype',
+            'Segoe MDL2 Assets', 'Segoe Print', 'Segoe Script', 'Segoe UI', 'Segoe UI Emoji',
+            'SimSun', 'Sitka', 'Sylfaen', 'Symbol', 'Tahoma', 'Times New Roman',
+            'Trebuchet MS', 'Verdana', 'Webdings', 'Wingdings', 'Yu Gothic'],
+    'mac': ['American Typewriter', 'Andale Mono', 'Apple Chancery', 'Apple Color Emoji',
+            'Apple Symbols', 'Arial', 'Arial Black', 'Arial Narrow', 'Arial Rounded MT Bold',
+            'Avenir', 'Avenir Next', 'Ayuthaya', 'Baskerville', 'Big Caslon', 'Bodoni 72',
+            'Bradley Hand', 'Brush Script MT', 'Chalkboard', 'Chalkduster', 'Charter', 'Cochin',
+            'Comic Sans MS', 'Copperplate', 'Courier New', 'Didot', 'Futura', 'Geneva',
+            'Georgia', 'Gill Sans', 'Helvetica', 'Helvetica Neue', 'Herculanum', 'Hoefler Text',
+            'Impact', 'Lucida Grande', 'Luminari', 'Marker Felt', 'Menlo', 'Monaco',
+            'Noteworthy', 'Optima', 'Palatino', 'Papyrus', 'Phosphate', 'Rage Italic',
+            'Rockwell', 'Savoye LET', 'SignPainter', 'Skia', 'Snell Roundhand', 'Tahoma',
+            'Times New Roman', 'Trattatello', 'Trebuchet MS', 'Verdana', 'Zapfino'],
+    'linux': ['Arial', 'Bitstream Charter', 'Cantarell', 'Century Schoolbook L', 'Comic Sans MS',
+              'Courier 10 Pitch', 'Courier New', 'DejaVu Sans', 'DejaVu Sans Mono', 'DejaVu Serif',
+              'Dingbats', 'FreeMono', 'FreeSans', 'FreeSerif', 'Georgia', 'Impact',
+              'Liberation Mono', 'Liberation Sans', 'Liberation Serif', 'Loma', 'Nimbus Mono PS',
+              'Nimbus Roman', 'Nimbus Sans', 'Noto Color Emoji', 'Noto Sans', 'Noto Serif',
+              'P052', 'Standard Symbols PS', 'Tahoma', 'Terminus', 'Times New Roman',
+              'Trebuchet MS', 'Ubuntu', 'Ubuntu Condensed', 'Ubuntu Mono', 'URW Bookman',
+              'URW Gothic', 'Verdana', 'Z003'],
+}
+
+PLUGINS = {
+    'win': [('PDF Viewer', 'internal-pdf-viewer', 'Portable Document Format'),
+            ('Chrome PDF Viewer', 'internal-pdf-viewer', 'Portable Document Format'),
+            ('Chromium PDF Viewer', 'internal-pdf-viewer', 'Portable Document Format'),
+            ('Microsoft Edge PDF Viewer', 'internal-pdf-viewer', 'Portable Document Format'),
+            ('WebKit built-in PDF', 'internal-pdf-viewer', 'Portable Document Format')],
+    'mac': [('PDF Viewer', 'internal-pdf-viewer', 'Portable Document Format'),
+            ('Chrome PDF Viewer', 'internal-pdf-viewer', 'Portable Document Format'),
+            ('Chromium PDF Viewer', 'internal-pdf-viewer', 'Portable Document Format'),
+            ('WebKit built-in PDF', 'internal-pdf-viewer', 'Portable Document Format')],
+    'linux': [('PDF Viewer', 'internal-pdf-viewer', 'Portable Document Format'),
+              ('Chrome PDF Viewer', 'internal-pdf-viewer', 'Portable Document Format'),
+              ('Chromium PDF Viewer', 'internal-pdf-viewer', 'Portable Document Format')],
+}
+
 NOISE = r"""
 (() => {
   const seed = __SEED__ >>> 0;
@@ -74,10 +123,13 @@ NOISE = r"""
   const def = (obj, prop, value) => {
     try { Object.defineProperty(obj, prop, { get: () => value, configurable: true }); } catch (e) {}
   };
+  const defineFn = (obj, prop, fn) => {
+    try { Object.defineProperty(obj, prop, { get: fn, configurable: true }); } catch (e) {}
+  };
   def(navigator, 'platform', '__PLATFORM__');
   def(navigator, 'hardwareConcurrency', __CORES__);
   def(navigator, 'deviceMemory', __MEMORY__);
-  def(Object.getPrototypeOf(navigator), 'webdriver', undefined);
+  def(navigator, 'vendor', '__VENDOR_NS__');
   def(window, 'devicePixelRatio', __DPR__);
   const SW = __SW__, SH = __SH__, AVAIL_H = __AVAIL_H__;
   def(screen, 'width', SW);
@@ -86,6 +138,141 @@ NOISE = r"""
   def(screen, 'availHeight', AVAIL_H);
   def(screen, 'colorDepth', 24);
   def(screen, 'pixelDepth', 24);
+
+  // --- automation leaks ---
+  // fully remove webdriver from both navigator and its prototype chain
+  try { delete Navigator.prototype.webdriver; } catch (e) {}
+  try { delete navigator.webdriver; } catch (e) {}
+  try {
+    Object.defineProperty(Object.getPrototypeOf(navigator), 'webdriver',
+      { get: () => undefined, configurable: true });
+    delete Object.getPrototypeOf(navigator).webdriver;
+  } catch (e) {}
+  def(navigator, 'languages', ['__LOCALE__', '__LOCALE_BASE__']);
+  // window.chrome runtime shim (headless Chromium omits it)
+  if (!window.chrome) { window.chrome = {}; }
+  if (!window.chrome.runtime) {
+    window.chrome.runtime = {
+      connect: function () { return { onMessage: { addListener: function () {} },
+        postMessage: function () {}, disconnect: function () {} }; },
+      sendMessage: function () {}, id: undefined,
+    };
+  }
+  if (!window.chrome.app) { window.chrome.app = { isInstalled: false, InstallState: {}, RunningState: {} }; }
+  if (!window.chrome.csi) { window.chrome.csi = function () { return {}; }; }
+  if (!window.chrome.loadTimes) { window.chrome.loadTimes = function () { return {}; }; }
+
+  // --- plugins (mimeType array consistent with the OS) ---
+  const PLUGINS = __PLUGINS__;
+  function mkPlugin(name, filename, desc) {
+    const p = Object.create(Plugin.prototype);
+    p.name = name; p.filename = filename; p.description = desc;
+    Object.defineProperty(p, Symbol.toStringTag, { value: 'Plugin', configurable: true });
+    const mime = Object.create(MimeType.prototype);
+    mime.type = 'application/pdf';
+    mime.suffixes = 'pdf';
+    mime.description = desc;
+    mime.enabledPlugin = p;
+    Object.defineProperty(mime, Symbol.toStringTag, { value: 'MimeType', configurable: true });
+    p.length = 1;
+    p[0] = mime;
+    p.item = (i) => (i === 0 ? mime : null);
+    p.namedItem = (t) => (t === mime.type ? mime : null);
+    return { plugin: p, mimes: [mime] };
+  }
+  function buildPlugins() {
+    const arr = []; const mime = [];
+    for (const [n, f, d] of PLUGINS) {
+      const { plugin, mimes } = mkPlugin(n, f, d);
+      arr.push(plugin); mime.push(...mimes);
+    }
+    const mimeSet = Object.create(MimeTypeArray.prototype);
+    mime.forEach((m, i) => { mimeSet[i] = m; });
+    Object.defineProperty(mimeSet, 'length', { value: mime.length, enumerable: false });
+    mimeSet.item = (i) => mime[i] || null;
+    mimeSet.namedItem = (t) => mime.find((m) => m.type === t) || null;
+    const pluginSet = Object.create(PluginArray.prototype);
+    arr.forEach((p, i) => { pluginSet[i] = p; });
+    Object.defineProperty(pluginSet, 'length', { value: arr.length, enumerable: false });
+    pluginSet.item = (i) => arr[i] || null;
+    pluginSet.namedItem = (n) => arr.find((p) => p.name === n) || null;
+    pluginSet.refresh = () => {};
+    return { plugins: pluginSet, mimeTypes: mimeSet };
+  }
+  const P = buildPlugins();
+  def(navigator, 'plugins', P.plugins);
+  def(navigator, 'mimeTypes', P.mimeTypes);
+  def(navigator, 'pdfViewerEnabled', true);
+
+  // --- permissions: notifications default must be 'prompt' not 'denied' ---
+  if (navigator.permissions && navigator.permissions.query) {
+    const origQ = navigator.permissions.query.bind(navigator.permissions);
+    navigator.permissions.query = (p) => {
+      if (p && p.name === 'notifications') {
+        return Promise.resolve({ state: Notification.permission, name: 'notifications',
+          onchange: null });
+      }
+      return origQ(p);
+    };
+  }
+
+  // --- fonts: report exactly the profile OS's font list, block the host's ---
+  const FONTS = __FONTS__;
+  const fontSet = new Set(FONTS.map((f) => f.toLowerCase()));
+  const baseSet = new Set(['serif', 'sans-serif', 'monospace', 'cursive',
+    'fantasy', 'system-ui', '-apple-system', 'ui-sans-serif', 'ui-serif', 'ui-monospace']);
+  const firstFamily = (spec) => {
+    let s = String(spec).split(',')[0].trim().replace(/["']/g, '');
+    s = s.replace(/^[\d.]+(px|pt|em|rem|%|ex|ch|vw|vh|vh)?\s*/i, '');
+    s = s.replace(/^(italic|oblique|normal|small-caps|bold|bolder|lighter|\d00)\s*/i, '');
+    return s.trim();
+  };
+  const unknown = (fam) => {
+    const f = String(fam).trim().toLowerCase();
+    if (!f) { return false; }
+    return !baseSet.has(f) && !fontSet.has(f);
+  };
+  if (document.fonts && document.fonts.check) {
+    document.fonts.check = function (font, text) {
+      return !unknown(firstFamily(font));
+    };
+  }
+  // CSS masking: define a (broken) @font-face for every font the profile OS
+  // should NOT have. Once a family is declared via @font-face, Chrome stops
+  // falling back to the host's system font of that name and instead uses the
+  // broken face -> the probe's family resolves to the next in the list
+  // (usually the generic fallback), so its width is unchanged -> "absent".
+  const hostOnly = __HOST_ONLY__;
+  const _applyFontMask = () => {
+    if (!hostOnly.length || document.getElementById('__gn_fontmask__')) { return true; }
+    const root = document.head || document.documentElement;
+    if (!root) { return false; }
+    try {
+      const css = hostOnly.map((f) =>
+        '@font-face{font-family:"' + f + '";'
+        + 'src:url(data:font/woff;base64,AAAA) format("woff")}'
+      ).join('');
+      const st = document.createElement('style');
+      st.id = '__gn_fontmask__';
+      st.textContent = css;
+      root.appendChild(st);
+      return true;
+    } catch (e) { return false; }
+  };
+  if (!_applyFontMask()) {
+    // document_start: no <head>/<html> yet — attach as soon as one exists,
+    // before any page script can run its font probe
+    const obs = new MutationObserver(() => {
+      if (_applyFontMask()) { obs.disconnect(); }
+    });
+    try {
+      obs.observe(document, { childList: true, subtree: true });
+    } catch (e) {
+      document.addEventListener('readystatechange', _applyFontMask);
+    }
+  }
+
+  // --- WebGL: keep the spoofed vendor/renderer (already set below) ---
   const VENDOR = '__VENDOR__', RENDERER = '__RENDERER__';
   for (const Ctx of [window.WebGLRenderingContext, window.WebGL2RenderingContext]) {
     if (!Ctx) continue;
@@ -96,6 +283,52 @@ NOISE = r"""
       return origParam.call(this, p);
     };
   }
+
+  // --- WebGPU: spoof the adapter so GPU stack matches the profile ---
+  const WGPU_VENDOR = '__WGPU_VENDOR__', WGPU_ARCH = '__WGPU_ARCH__';
+  if (navigator.gpu && navigator.gpu.requestAdapter) {
+    const origReq = navigator.gpu.requestAdapter.bind(navigator.gpu);
+    navigator.gpu.requestAdapter = async function (opts) {
+      const adapter = await origReq(opts);
+      if (adapter && adapter.info !== undefined) {
+        try {
+          Object.defineProperty(adapter, 'info', {
+            get: () => ({ vendor: WGPU_VENDOR, architecture: WGPU_ARCH,
+              device: '', description: '' }), configurable: true });
+        } catch (e) {}
+      }
+      if (adapter && adapter.requestAdapterInfo) {
+        try { adapter.requestAdapterInfo = async () => ({ vendor: WGPU_VENDOR,
+          architecture: WGPU_ARCH, device: '', description: '' }); } catch (e) {}
+      }
+      return adapter;
+    };
+  }
+
+  // --- audio: deterministic-per-session AudioContext fingerprint noise ---
+  if (window.AudioBuffer) {
+    const origGetChannel = AudioBuffer.prototype.getChannelData;
+    AudioBuffer.prototype.getChannelData = function (ch) {
+      const data = origGetChannel.call(this, ch);
+      for (let i = 0; i < data.length; i++) {
+        if (hash(i) < 0.01) {
+          data[i] = data[i] + (hash(i + 7) - 0.5) * 1e-7;
+        }
+      }
+      return data;
+    };
+  }
+  if (window.AnalyserNode && AnalyserNode.prototype.getFloatFrequencyData) {
+    const origGetFreq = AnalyserNode.prototype.getFloatFrequencyData;
+    AnalyserNode.prototype.getFloatFrequencyData = function (arr) {
+      origGetFreq.call(this, arr);
+      for (let i = 0; i < arr.length; i++) {
+        if (hash(i + 3) < 0.02) { arr[i] = arr[i] + (hash(i + 11) - 0.5) * 1e-4; }
+      }
+    };
+  }
+
+  // --- canvas noise (kept) ---
   const origGet = CanvasRenderingContext2D.prototype.getImageData;
   CanvasRenderingContext2D.prototype.getImageData = function (x, y, w, h) {
     const img = origGet.call(this, x, y, w, h);
@@ -125,6 +358,46 @@ def _real_browser_version(channel):
     return '131.0.0.0', '131'
 
 
+def _host_only_fonts(profile):
+    """fonts the host has that the profile OS should not report"""
+    profile_fonts = {f.lower() for f in FONTS[profile['os']]}
+    out = set()
+    for os_fonts in FONTS.values():
+        for f in os_fonts:
+            if f.lower() not in profile_fonts:
+                out.add(f)
+    return sorted(out)
+
+
+def _wgpu_info(profile):
+    g = profile['gpu'][1].lower()
+    if 'nvidia' in g:
+        vendor = 'nvidia'
+    elif 'amd' in g or 'radeon' in g:
+        vendor = 'amd'
+    elif 'intel' in g:
+        vendor = 'intel'
+    elif 'apple' in g:
+        vendor = 'apple'
+    else:
+        vendor = 'nvidia'
+    if 'rtx 40' in g or 'rtx 30' in g:
+        arch = 'ampere' if 'rtx 30' in g else 'ada'
+    elif 'radeon' in g or 'navi' in g:
+        arch = 'rdna2'
+    elif 'm1' in g:
+        arch = 'apple'
+    elif 'm2' in g:
+        arch = 'apple'
+    elif 'iris' in g or 'uhd' in g or 'hd graphics' in g:
+        arch = 'gen-9'
+    elif 'gtx' in g:
+        arch = 'turing' if 'gtx 16' in g else 'pascal'
+    else:
+        arch = 'ampere'
+    return vendor, arch
+
+
 def _script(profile, seed, version, channel):
     s = NOISE
     s = s.replace('__SEED__', str(seed))
@@ -138,6 +411,15 @@ def _script(profile, seed, version, channel):
     s = s.replace('__AVAIL_H__', str(avail))
     s = s.replace('__VENDOR__', profile['gpu'][0])
     s = s.replace('__RENDERER__', profile['gpu'][1])
+    s = s.replace('__VENDOR_NS__', 'Google Inc.' if profile['os'] != 'mac' else 'Apple Computer, Inc.')
+    s = s.replace('__LOCALE__', profile['locale'])
+    s = s.replace('__LOCALE_BASE__', profile['locale'].split('-')[0])
+    s = s.replace('__FONTS__', json.dumps(FONTS[profile['os']]))
+    s = s.replace('__HOST_ONLY__', json.dumps(_host_only_fonts(profile)))
+    s = s.replace('__PLUGINS__', json.dumps(PLUGINS[profile['os']]))
+    wv, wa = _wgpu_info(profile)
+    s = s.replace('__WGPU_VENDOR__', wv)
+    s = s.replace('__WGPU_ARCH__', wa)
     return s
 
 
@@ -267,6 +549,73 @@ class Manager:
         except Exception:
             return False
         return bool(re.search(pattern, html, re.I | re.S))
+
+    # --- human-like interaction (opt-in via gn go --human) ---
+
+    def _ease(self, p):
+        # ease-in-out cubic — non-linear speed, unlike teleporting bots
+        return 4 * p * p * p if p < 0.5 else 1 - pow(-2 * p + 2, 3) / 2
+
+    def human_mouse(self, page, x, y, steps=None):
+        import math
+        try:
+            start = page.evaluate("() => ({x: window.__gn_mx || 0, y: window.__gn_my || 0})")
+        except Exception:
+            start = {'x': 0, 'y': 0}
+        x0, y0 = float(start.get('x', 0)), float(start.get('y', 0))
+        dist = math.hypot(x - x0, y - y0)
+        steps = steps or max(6, min(40, int(dist / 12)))
+        # a bowed path, not a straight line, with per-step jitter
+        cx = (x0 + x) / 2 + random.uniform(-dist * 0.15, dist * 0.15)
+        cy = (y0 + y) / 2 + random.uniform(-dist * 0.15, dist * 0.15)
+        for i in range(1, steps + 1):
+            t = self._ease(i / steps)
+            bx = (1 - t) ** 2 * x0 + 2 * (1 - t) * t * cx + t * t * x
+            by = (1 - t) ** 2 * y0 + 2 * (1 - t) * t * cy + t * t * y
+            jx = bx + random.uniform(-1.2, 1.2)
+            jy = by + random.uniform(-1.2, 1.2)
+            page.mouse.move(jx, jy)
+            page.evaluate('(p) => { window.__gn_mx = p.x; window.__gn_my = p.y; }',
+                          {'x': jx, 'y': jy})
+            time.sleep(random.uniform(0.008, 0.028))
+        page.evaluate('(p) => { window.__gn_mx = p.x; window.__gn_my = p.y; }',
+                      {'x': x, 'y': y})
+
+    def human_click(self, page, selector):
+        try:
+            el = page.query_selector(selector)
+            if not el:
+                return False
+            box = el.bounding_box()
+            if not box:
+                el.click()
+                return True
+            tx = box['x'] + box['width'] * random.uniform(0.3, 0.7)
+            ty = box['y'] + box['height'] * random.uniform(0.3, 0.7)
+            self.human_mouse(page, tx, ty)
+            time.sleep(random.uniform(0.05, 0.2))
+            page.mouse.down()
+            time.sleep(random.uniform(0.04, 0.12))
+            page.mouse.up()
+            return True
+        except Exception:
+            return False
+
+    def human_type(self, page, selector, text):
+        try:
+            el = page.query_selector(selector)
+            if not el:
+                return False
+            el.click()
+        except Exception:
+            return False
+        for ch in text:
+            # real key events (down/up) so keydown/keyup listeners fire, like typing
+            page.keyboard.type(ch, delay=0)
+            time.sleep(random.uniform(0.04, 0.16))
+            if random.random() < 0.08:
+                time.sleep(random.uniform(0.2, 0.7))
+        return True
 
     def is_open(self):
         return bool(self.context and not self._closed)

@@ -1,6 +1,7 @@
 import argparse
 import json
 import os
+import random
 import shutil
 import signal
 import subprocess
@@ -115,6 +116,21 @@ def _forget_good(host, ip):
         ui.info(f'exit {ip} is now blocked too — removed from proven list')
 
 
+def _human_warmup(mgr):
+    """a few natural mouse moves on load so the session doesn't look idle-bot"""
+    try:
+        page = mgr.context.pages[0]
+        w = page.viewport_size or {'width': 1280, 'height': 800}
+        for _ in range(random.randint(2, 4)):
+            mgr.human_mouse(page,
+                            random.uniform(20, w['width'] * 0.8),
+                            random.uniform(20, w['height'] * 0.8))
+            page.mouse.wheel(0, random.randint(-120, 240))
+            time.sleep(random.uniform(0.2, 0.6))
+    except Exception:
+        pass
+
+
 def _open_with_retry(mgr, args):
     if args.transport not in ('tor', 'obfs4'):
         return mgr.open(args.target)
@@ -216,6 +232,8 @@ def _run_session_loop(args, once=False):
         ui.session_line(meta)
         if ip:
             ui.ip_line(ip)
+        if getattr(args, 'human', False) and mgr.is_open():
+            _human_warmup(mgr)
 
     interval = parse_every(args.every) if args.every else None
     if getattr(args, 'no_watch', False):
@@ -509,6 +527,8 @@ def main(argv=None):
     go.add_argument('--once', action='store_true', help='single session, no auto-rotate loop')
     go.add_argument('--keep-profiles', action='store_true', help='do not delete profiles on rotate')
     go.add_argument('--firefox', action='store_true', help='use Firefox channel instead of Chrome')
+    go.add_argument('--human', action='store_true',
+                    help='add human-like mouse/scroll activity on load (slower, stealthier)')
     go.add_argument('--detach', action='store_true',
                     help='run the session loop in the background; control with gn new / gn status / gn off')
     go.set_defaults(func=cmd_go)
