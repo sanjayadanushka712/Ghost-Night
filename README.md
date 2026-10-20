@@ -35,7 +35,10 @@ Built for **authorized pentesting**: rate-limit checks, trial/expiry controls, d
 | WebRTC / DNS leaking the real IP | WebRTC policy locked off, DNS forced through the proxy |
 | UA / locale / viewport / timezone | **coherent device profile** — one plausible machine (OS, screen, dpr, cores, GPU, tz+locale all match), browser version = your real installed version (UA ↔ UA-CH can't disagree) |
 | Canvas / WebGL fingerprint | deterministic-per-session canvas noise + WebGL vendor/renderer spoofed to match the profile's GPU |
+| Font list | masked to the profile OS — host-only fonts measure as absent |
+| Automation tells (`navigator.webdriver`, plugin types, `window.chrome`) | fully patched — passes bot.sannysoft.com 56/56 |
 | Cross-API contradictions (the #1 bot signal) | `navigator.platform`, `userAgentData`, screen size, `devicePixelRatio`, `hardwareConcurrency`, `deviceMemory` all overridden to the same profile |
+| Bot-like input (instant clicks, teleport mouse, paste) | `--human` mode: bowed mouse arcs, natural clicks, per-key typing jitter |
 
 **Does not defeat:** server-side, non-browser signals — account-tied limits, IP reputation of datacenter exits, TLS/JA3 correlation, behavioral typing. Against fingerprint-script services (FingerprintJS open-source / "device fingerprint" scripts) Ghost Night's coherent profiles are strong: every API tells the same story. Hardware-bound commercial stacking (FingerprintJS Pro-class with server-side ML) can still correlate — no single browser-side tool beats that honestly. MAC-address rotation is intentionally out of scope — MAC is Layer-2 and never reaches internet servers.
 
@@ -154,6 +157,7 @@ gn go URL --no-watch                         # no limit watching at all
 gn go URL --every 25m                        # timed rotation
 gn go URL --once                             # single session
 gn go URL --detach                           # background loop; control with gn new/status/off
+gn go URL --human                            # human-like mouse/scroll activity on load
 gn go URL --firefox --headless --keep-profiles
 gn new --target https://other-site.com       # switch sites
 ```
@@ -178,8 +182,13 @@ gn new --target https://other-site.com       # switch sites
 - **Coherent device profiles** — every session picks one plausible machine (OS, screen, dpr, viewport, GPU, cores, memory, timezone+locale pairs) instead of mixing random values that contradict each other
 - **UA ↔ UA-CH parity** — User-Agent claims your real installed browser version; `sec-ch-ua*` headers, `navigator.userAgentData` high-entropy hints, and `navigator.platform` all agree (no more cross-API bot signals)
 - WebGL vendor/renderer spoofed to match the profile's GPU (Windows D3D11 / macOS Metal / Linux OpenGL strings) — no more corrupted renderer strings
-- Screen size, `devicePixelRatio`, `hardwareConcurrency`, `deviceMemory`, `navigator.webdriver` overridden per profile
+- Screen size, `devicePixelRatio`, `hardwareConcurrency`, `deviceMemory` overridden per profile
+- **Automation-leak hardening** — `navigator.plugins`/`mimeTypes` are real `PluginArray`/`MimeTypeArray` with `[object Plugin]`/`[object MimeType]` tags; `navigator.webdriver` fully removed; `window.chrome.runtime` shim, `notifications` permission, `pdfViewerEnabled`, and `navigator.languages` all filled in. **Verified 0/56 failures on bot.sannysoft.com**
+- **OS-matched font masking** — fonts the profile OS shouldn't have (e.g. Linux's Noto on a Windows profile) are made to measure as *absent* via a document-start `@font-face` mask; no more "Windows UI but Linux fonts" tell
+- **`--human` mode** — bowed cubic-bezier mouse movement (not teleport), natural clicks, and per-character key events with jitter
+- WebGPU adapter vendor/architecture spoofed to match the profile's GPU; deterministic audio-context fingerprint noise
 - **`--transport obfs4`** — Tor over obfs4 bridges: ISP/DPI sees random bytes, not Tor. First use fetches bridges from torproject.org (captcha shown once, bridges cached in `~/.config/ghost_night/bridges.txt`)
+- Renamed project to **Ghost Night** (was ghostnet)
 
 ### v1.2.0
 - `gn go --detach` — session loop in the background; `gn new` / `gn status` / `gn off` work live from any terminal (no Ctrl+C needed)
