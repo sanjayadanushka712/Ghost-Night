@@ -4,7 +4,7 @@ import shutil
 import urllib.request
 from pathlib import Path
 
-CONF = Path.home() / '.config' / 'gray_net'
+CONF = Path.home() / '.config' / 'ghost_night'
 BRIDGES = CONF / 'bridges.txt'
 CAPTCHA = CONF / 'captcha.jpg'
 MOAT = 'https://bridges.torproject.org/moat'

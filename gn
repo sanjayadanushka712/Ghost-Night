@@ -4,7 +4,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
-VENV_PY = Path.home() / '.local' / 'share' / 'gray_net' / 'venv' / 'bin' / 'python'
+VENV_PY = Path.home() / '.local' / 'share' / 'ghost_night' / 'venv' / 'bin' / 'python'
 
 if VENV_PY.exists() and sys.executable != str(VENV_PY):
     try:
@@ -14,7 +14,7 @@ if VENV_PY.exists() and sys.executable != str(VENV_PY):
 
 sys.path.insert(0, str(ROOT))
 
-from gray_net.cli import main
+from ghost_night.cli import main
 
 if __name__ == '__main__':
     main()

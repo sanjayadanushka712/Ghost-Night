@@ -2,7 +2,7 @@ import json
 import time
 from pathlib import Path
 
-LOG = Path.home() / '.local' / 'share' / 'gray_net' / 'log.jsonl'
+LOG = Path.home() / '.local' / 'share' / 'ghost_night' / 'log.jsonl'
 
 
 def event(kind, **kw):

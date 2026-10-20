@@ -12,7 +12,7 @@ from urllib.parse import urlparse
 from . import bridges, session, tor, ui
 from .log import event, tail
 
-CONF = Path.home() / '.config' / 'gray_net'
+CONF = Path.home() / '.config' / 'ghost_night'
 GN_PID = CONF / 'gn.pid'
 STATE = CONF / 'state.json'
 GOOD_EXITS = CONF / 'good_exits.json'
@@ -183,7 +183,7 @@ def _open_with_retry(mgr, args):
 def _run_session_loop(args, once=False):
     CONF.mkdir(parents=True, exist_ok=True)
     GN_PID.write_text(str(os.getpid()))
-    detach = bool(os.environ.get('GRAY_NET_DETACH'))
+    detach = bool(os.environ.get('GHOST_NIGHT_DETACH'))
     want = {'rotate': False}
 
     def on_term(*_):
@@ -322,7 +322,7 @@ def cmd_go(args):
         except (RuntimeError, OSError, ValueError, EOFError) as e:
             sys.exit(f'error: {e}')
         ui.ok(f'got {len(got)} bridge(s), cached in {bridges.BRIDGES}')
-    if args.detach and not os.environ.get('GRAY_NET_DETACH'):
+    if args.detach and not os.environ.get('GHOST_NIGHT_DETACH'):
         prev = {}
         if STATE.exists():
             try:
@@ -331,7 +331,7 @@ def cmd_go(args):
                 prev = {}
         log = open(CONF / 'gn.log', 'a')
         child_argv = [a for a in sys.argv[1:] if a != '--detach']
-        env = dict(os.environ, GRAY_NET_DETACH='1')
+        env = dict(os.environ, GHOST_NIGHT_DETACH='1')
         p = subprocess.Popen(
             [sys.executable, str(Path(__file__).resolve().parents[1] / 'gn')] + child_argv,
             stdout=log, stderr=log, stdin=subprocess.DEVNULL,
@@ -432,7 +432,7 @@ def cmd_status(args):
     st = json.loads(STATE.read_text()) if STATE.exists() else {}
     n = len(list(session.SESSIONS.glob('*'))) if session.SESSIONS.exists() else 0
     loop = f"running · pid {GN_PID.read_text().strip()}" if GN_PID.exists() else 'not running'
-    ui.panel('gray_net', [
+    ui.panel('ghost_night', [
         ('tor', tor_row[0], tor_row[1]),
         ('session', st.get('sid') or '-', ui.BRIGHT if st.get('sid') else None),
         ('target', st.get('target') or '-', None),
@@ -494,7 +494,7 @@ def cmd_off(args):
 def main(argv=None):
     p = argparse.ArgumentParser(
         prog='gn',
-        description='gray_net — anonymous device rotation: fresh IP + fresh browser fingerprint per session',
+        description='ghost_night — anonymous device rotation: fresh IP + fresh browser fingerprint per session',
     )
     sub = p.add_subparsers(dest='cmd', required=True)
 

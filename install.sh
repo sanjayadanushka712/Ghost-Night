@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -e
 
-echo "gray_net installer"
+echo "ghost_night installer"
 
 SUDO=""
 if [ "$(id -u)" -ne 0 ]; then
@@ -22,7 +22,7 @@ else
   echo "!! unknown package manager — install tor and curl manually"
 fi
 
-VENV="$HOME/.local/share/gray_net/venv"
+VENV="$HOME/.local/share/ghost_night/venv"
 if [ ! -x "$VENV/bin/python" ]; then
   echo ".. creating venv"
   python3 -m venv "$VENV"
