@@ -38,6 +38,8 @@ Built for **authorized pentesting**: rate-limit checks, trial/expiry controls, d
 | Font list | masked to the profile OS — host-only fonts measure as absent |
 | Automation tells (`navigator.webdriver`, plugin types, `window.chrome`) | fully patched — passes bot.sannysoft.com 56/56 |
 | Cross-API contradictions (the #1 bot signal) | `navigator.platform`, `userAgentData`, screen size, `devicePixelRatio`, `hardwareConcurrency`, `deviceMemory` all overridden to the same profile |
+| Chrome-only fingerprint surface (Blink vs Gecko tells) | `--firefox` runs a **real Firefox identity** — Firefox UA (`rv:<major>.0`), matching platform/cores/tz/locale, Firefox-hardening `user_prefs`; passes bot.sannysoft.com 55/56 |
+| Datacenter-IP reputation (Tor exits are flagged) | `--proxy-pool` rotates through your own residential/mobile proxies — one fresh IP per session |
 | Bot-like input (instant clicks, teleport mouse, paste) | `--human` mode: bowed mouse arcs, natural clicks, per-key typing jitter |
 
 **Does not defeat:** server-side, non-browser signals — account-tied limits, IP reputation of datacenter exits, TLS/JA3 correlation, behavioral typing. Against fingerprint-script services (FingerprintJS open-source / "device fingerprint" scripts) Ghost Night's coherent profiles are strong: every API tells the same story. Hardware-bound commercial stacking (FingerprintJS Pro-class with server-side ML) can still correlate — no single browser-side tool beats that honestly. MAC-address rotation is intentionally out of scope — MAC is Layer-2 and never reaches internet servers.
@@ -152,12 +154,14 @@ gn go URL --transport tor                    # default: tor with auto-retry on b
 gn go URL --transport obfs4                  # tor over obfs4 bridges — ISP can't see it's tor
 gn go URL --transport direct                 # no proxy — cookie/fingerprint rotation only
 gn go URL --transport proxy --proxy socks5://127.0.0.1:1080
+gn go URL --transport proxy --proxy-pool proxies.txt   # rotate through a file of proxies
 gn go URL --detect "regex"                   # custom limit pattern (auto-rotate on match)
 gn go URL --no-watch                         # no limit watching at all
 gn go URL --every 25m                        # timed rotation
 gn go URL --once                             # single session
 gn go URL --detach                           # background loop; control with gn new/status/off
 gn go URL --human                            # human-like mouse/scroll activity on load
+gn go URL --firefox                          # real Firefox identity (not Chrome in disguise)
 gn go URL --firefox --headless --keep-profiles
 gn new --target https://other-site.com       # switch sites
 ```
@@ -172,7 +176,7 @@ gn new --target https://other-site.com       # switch sites
 
 ## Files
 
-- `~/.config/ghost_night/` — tor config, control cookie, logs, proven-exit cache (`good_exits.json`), obfs4 bridges (`bridges.txt`)
+- `~/.config/ghost_night/` — tor config, control cookie, logs, proven-exit cache (`good_exits.json`), obfs4 bridges (`bridges.txt`), proxy pool (`proxies.txt` — default location if you omit `--proxy-pool`)
 - `~/.local/share/ghost_night/sessions/` — live browser profiles (deleted on rotate)
 - `~/.local/share/ghost_night/log.jsonl` — rotation history (IP, fingerprint, timestamp)
 
@@ -188,6 +192,8 @@ gn new --target https://other-site.com       # switch sites
 - **`--human` mode** — bowed cubic-bezier mouse movement (not teleport), natural clicks, and per-character key events with jitter
 - WebGPU adapter vendor/architecture spoofed to match the profile's GPU; deterministic audio-context fingerprint noise
 - **`--transport obfs4`** — Tor over obfs4 bridges: ISP/DPI sees random bytes, not Tor. First use fetches bridges from torproject.org (captcha shown once, bridges cached in `~/.config/ghost_night/bridges.txt`)
+- **Coherent Firefox profiles** — `--firefox` now runs a real Firefox identity, not a Chrome body with a Firefox UA: Firefox-formatted UA drawn from the installed binary, matching platform/cores/timezone/locale/WebGL, and Firefox privacy-hardening `user_prefs` (telemetry/webdriver/beacon off). Passes bot.sannysoft.com 55/56 (only the Chrome-only `CHR_MEMORY` probe fails)
+- **Proxy-pool rotation** — `--transport proxy --proxy-pool proxies.txt` picks a fresh proxy from a file (one URL per line, `#` comments allowed) on every session *and* every rotation; the pool is remembered so `gn new` keeps rotating through it
 - Renamed project to **Ghost Night** (was ghostnet)
 
 ### v1.2.0
@@ -219,7 +225,8 @@ Contributions welcome — this tool gets better with use:
 
 - **Detection packs**: PRs with `--detect` patterns for known apps (helpful, no app-specific code in core)
 - **Transports**: QUIC/HTTP3 proxies, WireGuard rotation, containerized exits
-- **Fingerprinting**: font-consistency models, Firefox profile hardening, audio-context noise
+- **Fingerprinting**: font-consistency models, audio-context noise tuning, WebGPU/WebGL2 surfaces
+- **Transports**: uTLS/JA3-client spoofing (match Chrome/Firefox TLS handshakes), cross-layer coherence (IP geo ↔ timezone ↔ locale)
 - **Ops**: better status views, JSON output mode, systemd units
 
 Workflow: fork → feature branch → PR. Keep the core dependency-light (stdlib + playwright); no app-specific logic in core.
