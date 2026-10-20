@@ -92,6 +92,40 @@ PROFILES = [
          gpu=('Google Inc. (AMD)', 'ANGLE (AMD, AMD Radeon RX 570 Series (navi14), OpenGL 4.6 (Core Profile) Mesa 23.2.1)')),
 ]
 
+# coarse timezone -> country mapping used for cross-layer geo coherence:
+# a Tor exit in Germany paired with an America/New_York profile is a tell, so
+# when we know the exit country we prefer a profile whose tz sits in it
+TZ_COUNTRY = {
+    'America/New_York': 'US',
+    'America/Los_Angeles': 'US',
+    'Europe/Berlin': 'DE',
+    'Europe/London': 'GB',
+    'Europe/Paris': 'FR',
+    'Europe/Madrid': 'ES',
+    'Asia/Tokyo': 'JP',
+    'America/Sao_Paulo': 'BR',
+}
+
+
+def _profile_country(profile):
+    return TZ_COUNTRY.get(profile.get('tz'), 'US')
+
+
+def pick(geo_country=None, exclude=None):
+    """Pick a coherent profile, preferring one whose timezone fits the exit
+    country when we know it (cross-layer geo coherence)."""
+    pool = PROFILES
+    if exclude:
+        filtered = [p for p in PROFILES if p['os'] not in exclude]
+        if filtered:
+            pool = filtered
+    if geo_country:
+        geo_country = geo_country.upper()
+        matching = [p for p in pool if _profile_country(p) == geo_country]
+        if matching:
+            pool = matching
+    return random.choice(pool)
+
 # plausible plugin/font sets per OS — a Windows profile that reports Linux
 # fonts or zero plugins is an instant automation tell
 FONTS = {
@@ -480,11 +514,13 @@ def _script(profile, seed, version, channel):
 
 
 class Manager:
-    def __init__(self, headless=False, proxy=None, keep_profiles=False, channel='chrome'):
+    def __init__(self, headless=False, proxy=None, keep_profiles=False, channel='chrome',
+                 geo_country=None):
         self.headless = headless
         self.proxy = proxy
         self.keep = keep_profiles
         self.channel = channel
+        self.geo_country = geo_country
         self.pw = None
         self.context = None
         self._closed = True
@@ -540,7 +576,7 @@ class Manager:
         sid = f'{int(time.time())}-{random.randbytes(3).hex()}'
         path = SESSIONS / sid
         path.mkdir(parents=True, exist_ok=True)
-        profile = random.choice(PROFILES)
+        profile = pick(geo_country=self.geo_country)
         seed = random.getrandbits(32)
         version, major = _real_browser_version(self.channel)
         is_ff = self.channel == 'firefox'

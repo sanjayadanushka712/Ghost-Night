@@ -208,3 +208,20 @@ def real_ip(timeout=10):
         capture_output=True, text=True,
     )
     return r.stdout.strip() or None
+
+
+def exit_country(timeout=20):
+    """Country of the current Tor exit, looked up over clearnet (no traffic
+    of ours goes through the recorder). Returns an ISO-2 code or None."""
+    ip, _ = get_ip(timeout=timeout)
+    if not ip:
+        return None
+    r = subprocess.run(
+        ['curl', '-s', '--max-time', str(timeout),
+         f'https://ipapi.co/{ip}/country/'],
+        capture_output=True, text=True,
+    )
+    code = r.stdout.strip()
+    if code and len(code) == 2 and code.isalpha():
+        return code.upper()
+    return None

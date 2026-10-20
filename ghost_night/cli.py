@@ -137,8 +137,19 @@ def _human_warmup(mgr):
         pass
 
 
+def _apply_geo(mgr, args):
+    if args.transport not in ('tor', 'obfs4'):
+        mgr.geo_country = None
+        return
+    try:
+        mgr.geo_country = tor.exit_country()
+    except Exception:
+        mgr.geo_country = None
+
+
 def _open_with_retry(mgr, args):
     if args.transport not in ('tor', 'obfs4'):
+        _apply_geo(mgr, args)
         return mgr.open(args.target)
     use_obfs4 = args.transport == 'obfs4'
     obfs4_bridges = bridges.load() if use_obfs4 else None
@@ -170,6 +181,7 @@ def _open_with_retry(mgr, args):
                     if cur in nodes:
                         break
                     time.sleep(2)
+            _apply_geo(mgr, args)
             meta = mgr.open(args.target)
         blocked = meta.get('status') in (403, 429) or mgr.matches(r'Error: Forbidden|Access denied|403 Forbidden')
         if not blocked:
@@ -198,6 +210,7 @@ def _open_with_retry(mgr, args):
 
     ui.warn('all tor exit strategies blocked — falling back to direct connection (no proxy)')
     mgr.proxy = None
+    mgr.geo_country = None
     args.transport = 'direct'
     return mgr.open(args.target)
 

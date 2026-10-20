@@ -42,7 +42,9 @@ Built for **authorized pentesting**: rate-limit checks, trial/expiry controls, d
 | Datacenter-IP reputation (Tor exits are flagged) | `--proxy-pool` rotates through your own residential/mobile proxies — one fresh IP per session |
 | Bot-like input (instant clicks, teleport mouse, paste) | `--human` mode: bowed mouse arcs, natural clicks, per-key typing jitter |
 
-**Does not defeat:** server-side, non-browser signals — account-tied limits, IP reputation of datacenter exits, TLS/JA3 correlation, behavioral typing. Against fingerprint-script services (FingerprintJS open-source / "device fingerprint" scripts) Ghost Night's coherent profiles are strong: every API tells the same story. Hardware-bound commercial stacking (FingerprintJS Pro-class with server-side ML) can still correlate — no single browser-side tool beats that honestly. MAC-address rotation is intentionally out of scope — MAC is Layer-2 and never reaches internet servers.
+**TLS fingerprint (JA3/JA4) — mostly a non-issue here.** Ghost Night drives your *real* Chromium/Firefox binaries, and Tor/SOCKS proxies are opaque (they don't terminate TLS), so the browser's authentic ClientHello reaches the server untouched. Verified against `tls.peet.ws`: Chrome sends a real Chrome JA3/JA4 both direct and through Tor SOCKS; `--firefox` sends a genuine Firefox JA3. The only case where JA3 diverges is an **`http://` (TLS-terminating) proxy**, which re-originates TLS with a non-browser stack — prefer `socks5://` proxies in `--proxy-pool` to avoid it.
+
+**Does not defeat:** server-side, non-browser signals — account-tied limits, IP reputation of datacenter exits, behavioral typing, and IP-geo ↔ timezone contradictions (a Tor exit in Germany with a `America/New_York` profile is still a tell). Against fingerprint-script services (FingerprintJS open-source / "device fingerprint" scripts) Ghost Night's coherent profiles are strong: every API tells the same story. Hardware-bound commercial stacking (FingerprintJS Pro-class with server-side ML) can still correlate — no single browser-side tool beats that honestly. MAC-address rotation is intentionally out of scope — MAC is Layer-2 and never reaches internet servers.
 
 ## Security & privacy
 
@@ -170,7 +172,7 @@ gn new --target https://other-site.com       # switch sites
 
 1. Tor gets `NEWNYM` → next connection uses a new exit circuit (new public IP); blocked exits are retried automatically.
 2. Old browser profile is closed and deleted.
-3. A new profile is created with a fresh identity: one coherent device profile (OS + screen + dpr + GPU + cores + tz + locale all from the same plausible machine), real browser version, fresh canvas noise seed.
+3. A new profile is created with a fresh identity: one coherent device profile (OS + screen + dpr + GPU + cores + tz + locale all from the same plausible machine), real browser version, fresh canvas noise seed. Under Tor/obfs4 the exit IP's country is looked up first, so the profile's timezone + locale match the IP's geography.
 4. The browser launches through the proxy and opens the target.
 5. The event is logged (`~/.local/share/ghost_night/log.jsonl`) — evidence for your pentest report.
 
@@ -194,6 +196,7 @@ gn new --target https://other-site.com       # switch sites
 - **`--transport obfs4`** — Tor over obfs4 bridges: ISP/DPI sees random bytes, not Tor. First use fetches bridges from torproject.org (captcha shown once, bridges cached in `~/.config/ghost_night/bridges.txt`)
 - **Coherent Firefox profiles** — `--firefox` now runs a real Firefox identity, not a Chrome body with a Firefox UA: Firefox-formatted UA drawn from the installed binary, matching platform/cores/timezone/locale/WebGL, and Firefox privacy-hardening `user_prefs` (telemetry/webdriver/beacon off). Passes bot.sannysoft.com 55/56 (only the Chrome-only `CHR_MEMORY` probe fails)
 - **Proxy-pool rotation** — `--transport proxy --proxy-pool proxies.txt` picks a fresh proxy from a file (one URL per line, `#` comments allowed) on every session *and* every rotation; the pool is remembered so `gn new` keeps rotating through it
+- **Cross-layer geo coherence** — when using Tor/obfs4, Ghost Night looks up the exit IP's country and picks a device profile whose timezone+locale fit it, so a Germany exit no longer pairs with an `America/New_York` profile (no IP-geo ↔ timezone contradiction)
 - Renamed project to **Ghost Night** (was ghostnet)
 
 ### v1.2.0
@@ -226,7 +229,7 @@ Contributions welcome — this tool gets better with use:
 - **Detection packs**: PRs with `--detect` patterns for known apps (helpful, no app-specific code in core)
 - **Transports**: QUIC/HTTP3 proxies, WireGuard rotation, containerized exits
 - **Fingerprinting**: font-consistency models, audio-context noise tuning, WebGPU/WebGL2 surfaces
-- **Transports**: uTLS/JA3-client spoofing (match Chrome/Firefox TLS handshakes), cross-layer coherence (IP geo ↔ timezone ↔ locale)
+- **Transports**: uTLS/JA3-client spoofing for TLS-terminating (`http://`) proxies, per-country proxy-pool geo tagging
 - **Ops**: better status views, JSON output mode, systemd units
 
 Workflow: fork → feature branch → PR. Keep the core dependency-light (stdlib + playwright); no app-specific logic in core.
