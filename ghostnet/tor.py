@@ -94,6 +94,8 @@ def _reload():
 
 
 def start(timeout=120, exit_nodes=None, strict=False, obfs4=False, bridges=None):
+    if obfs4 and timeout < 300:
+        timeout = 300
     old = TORRC.read_text() if TORRC.exists() else ''
     old_obfs4 = 'UseBridges 1' in old
     changed = write_config(exit_nodes, strict, obfs4, bridges)

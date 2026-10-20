@@ -27,8 +27,23 @@ def load():
             if ln.strip() and not ln.startswith('#')]
 
 
+def _routable(bridge):
+    """drop moat junk like private-IP bridges — they can never connect"""
+    import ipaddress
+    parts = bridge.split()
+    if len(parts) < 2 or ':' not in parts[1]:
+        return True
+    host = parts[1].rsplit(':', 1)[0].strip('[]')
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return True
+    return not (ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved)
+
+
 def save(lines):
     CONF.mkdir(parents=True, exist_ok=True)
+    lines = [b for b in lines if _routable(b)]
     have = set(load())
     fresh = [b for b in lines if b and b not in have]
     if fresh:
