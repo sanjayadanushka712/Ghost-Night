@@ -45,7 +45,19 @@ Built for **authorized pentesting**: rate-limit checks, trial/expiry controls, d
 
 **TLS fingerprint (JA3/JA4) — mostly a non-issue here.** Ghost Night drives your *real* Chromium/Firefox binaries, and Tor/SOCKS proxies are opaque (they don't terminate TLS), so the browser's authentic ClientHello reaches the server untouched. Verified against `tls.peet.ws`: Chrome sends a real Chrome JA3/JA4 both direct and through Tor SOCKS; `--firefox` sends a genuine Firefox JA3. The only case where JA3 diverges is an **`http://` (TLS-terminating) proxy**, which re-originates TLS with a non-browser stack — prefer `socks5://` proxies in `--proxy-pool` to avoid it.
 
-**Does not defeat:** server-side, non-browser signals — account-tied limits (a logged-in account's quota follows the account, not the device), IP reputation of datacenter exits, keystroke/typing cadence, and CAPTCHAs served to suspicious IPs. Against fingerprint-script services (FingerprintJS open-source / "device fingerprint" scripts) Ghost Night's coherent profiles are strong: every API tells the same story. Hardware-bound commercial stacking (FingerprintJS Pro-class with server-side ML) can still correlate — no single browser-side tool beats that honestly. MAC-address rotation is intentionally out of scope — MAC is Layer-2 and never reaches internet servers.
+**What we can and can't do — honestly.** Each remaining hard signal, and where Ghost Night stands:
+
+| hard signal | what Ghost Night does | verdict |
+|---|---|---|
+| Account-tied limits (quota follows the login, not the device) | rotates the whole device+IP identity, so free/trial-style limits reset — but a paid/authenticated account's quota is server-side and can't be reset | **partly** (trial/anon limits yes, account quotas no) |
+| Datacenter-IP reputation (Tor exits flagged) | `--proxy-pool` with your own residential/mobile proxies; `--transport obfs4` hides Tor from ISP DPI | **yes** (with your own clean IPs) |
+| Keystroke/typing cadence | `--human` adds realistic per-key inter-key timing; `--behavioral` models mouse/scroll/reading | **partly** (covers input *rhythm*, not full typing biomechanics — no clean-room key-dynamics model) |
+| CAPTCHAs served to suspicious IPs | cleaner exit/proxy selection raises the reputation bar | **mitigated** (not solved — a challenge still needs a real solve) |
+| Cross-API + IP-geo contradictions (the #1 script signal) | coherent device profiles + cross-layer geo coherence: every API, and the IP geography, tell one story | **yes** |
+| Fingerprint scripts (FingerprintJS open-source / device-fingerprint JS) | coherent profiles pass these — every value agrees | **yes** |
+| FingerprintJS Pro-class, server-side ML, hardware-bound | no honest browser-side tool beats server-side ML + account correlation | **no** (and no tool claiming otherwise is being straight with you) |
+
+MAC-address rotation is intentionally out of scope — MAC is Layer-2 and never reaches internet servers.
 
 **Raw HTTP mode (`gn fetch`) — what it is and isn't.** It carries a coherent identity at the *network* layer (TLS JA3/JA4, HTTP/2 fingerprint, header order, User-Agent) via real browser impersonation, with the UA version derived from the TLS fingerprint so they can't disagree. What it **is not**: a browser. There is no JS engine, so it announces **no** `navigator`/canvas/WebGL surface at all — on script-dependent or fingerprint-script sites that absence is itself a signal. Use it for APIs, feed/metadata fetches, and header/TLS-level checks; use the browser path when a site runs JS.
 
