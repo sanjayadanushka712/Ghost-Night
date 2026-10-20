@@ -38,13 +38,18 @@ Built for **authorized pentesting**: rate-limit checks, trial/expiry controls, d
 | Font list | masked to the profile OS — host-only fonts measure as absent |
 | Automation tells (`navigator.webdriver`, plugin types, `window.chrome`) | fully patched — passes bot.sannysoft.com 56/56 |
 | Cross-API contradictions (the #1 bot signal) | `navigator.platform`, `userAgentData`, screen size, `devicePixelRatio`, `hardwareConcurrency`, `deviceMemory` all overridden to the same profile |
+| Cross-layer geo contradiction (IP vs timezone) | when Tor/obfs4 or a country-tagged proxy is used, the exit's country drives the profile's timezone **and** locale (exit in Germany → `Europe/Berlin`/`de-DE`) |
 | Chrome-only fingerprint surface (Blink vs Gecko tells) | `--firefox` runs a **real Firefox identity** — Firefox UA (`rv:<major>.0`), matching platform/cores/tz/locale, Firefox-hardening `user_prefs`; passes bot.sannysoft.com 55/56 |
 | Datacenter-IP reputation (Tor exits are flagged) | `--proxy-pool` rotates through your own residential/mobile proxies — one fresh IP per session |
-| Bot-like input (instant clicks, teleport mouse, paste) | `--human` mode: bowed mouse arcs, natural clicks, per-key typing jitter |
+| Bot-like input (instant clicks, teleport mouse, paste) | `--human` mode (bowed arcs, per-key typing jitter) and `--behavioral` — a real motor/reading model: Fitts-law targeting, ballistic overshoot, scroll momentum, content-density dwell, idle drift |
 
 **TLS fingerprint (JA3/JA4) — mostly a non-issue here.** Ghost Night drives your *real* Chromium/Firefox binaries, and Tor/SOCKS proxies are opaque (they don't terminate TLS), so the browser's authentic ClientHello reaches the server untouched. Verified against `tls.peet.ws`: Chrome sends a real Chrome JA3/JA4 both direct and through Tor SOCKS; `--firefox` sends a genuine Firefox JA3. The only case where JA3 diverges is an **`http://` (TLS-terminating) proxy**, which re-originates TLS with a non-browser stack — prefer `socks5://` proxies in `--proxy-pool` to avoid it.
 
-**Does not defeat:** server-side, non-browser signals — account-tied limits, IP reputation of datacenter exits, behavioral typing, and IP-geo ↔ timezone contradictions (a Tor exit in Germany with a `America/New_York` profile is still a tell). Against fingerprint-script services (FingerprintJS open-source / "device fingerprint" scripts) Ghost Night's coherent profiles are strong: every API tells the same story. Hardware-bound commercial stacking (FingerprintJS Pro-class with server-side ML) can still correlate — no single browser-side tool beats that honestly. MAC-address rotation is intentionally out of scope — MAC is Layer-2 and never reaches internet servers.
+**Does not defeat:** server-side, non-browser signals — account-tied limits (a logged-in account's quota follows the account, not the device), IP reputation of datacenter exits, keystroke/typing cadence, and CAPTCHAs served to suspicious IPs. Against fingerprint-script services (FingerprintJS open-source / "device fingerprint" scripts) Ghost Night's coherent profiles are strong: every API tells the same story. Hardware-bound commercial stacking (FingerprintJS Pro-class with server-side ML) can still correlate — no single browser-side tool beats that honestly. MAC-address rotation is intentionally out of scope — MAC is Layer-2 and never reaches internet servers.
+
+> **Two of these used to be weaknesses and are now handled:** the IP-geo ↔ timezone contradiction (a Tor exit in Germany with an `America/New_York` profile) is fixed by cross-layer geo coherence — the exit/proxy country drives the profile's timezone+locale — and bot-like input (teleport mouse, instant scroll) is addressed by the behavioral engine. What *remains* genuinely out of reach is **typing cadence** (kinematics of how you strike keys) and **account/IP-tied limits**, which are server-side.
+
+**Raw HTTP mode (`gn fetch`) — what it is and isn't.** It carries a coherent identity at the *network* layer (TLS JA3/JA4, HTTP/2 fingerprint, header order, User-Agent) via real browser impersonation, with the UA version derived from the TLS fingerprint so they can't disagree. What it **is not**: a browser. There is no JS engine, so it announces **no** `navigator`/canvas/WebGL surface at all — on script-dependent or fingerprint-script sites that absence is itself a signal. Use it for APIs, feed/metadata fetches, and header/TLS-level checks; use the browser path when a site runs JS.
 
 ## Security & privacy
 
@@ -86,18 +91,19 @@ then run `./install.sh` once (creates the venv + links the `gn` command), or set
 
 ```bash
 python3 -m venv ~/.local/share/ghost_night/venv
-~/.local/share/ghost_night/venv/bin/pip install playwright
+~/.local/share/ghost_night/venv/bin/pip install playwright curl_cffi
+python -m playwright install firefox   # optional — only for `--firefox`
 ln -sf "$PWD/gn" ~/.local/bin/gn     # then ensure ~/.local/bin is in PATH
 ```
 
 ### Other requirements
 
-- **A browser must be installed** — Ghost Night uses your system Chrome/Chromium (default) or Firefox (`--firefox`); the installer warns if none is found.
+- **A browser must be installed** — Ghost Night uses your system Chrome/Chromium (default) or Firefox (`--firefox`); the installer warns if none is found. Raw HTTP mode (`gn fetch`) needs no browser.
 - **`~/.local/bin` in PATH** — so the `gn` command resolves; installer prints the exact line if needed:
   `export PATH="$HOME/.local/bin:$PATH"` (add to `~/.bashrc` or `~/.zshrc`)
 - **A desktop session** — headed (visible) browser windows need a display (X11/Wayland); `--headless` works without one.
 - **Free local ports 19050/19051** — Tor's SOCKS and control ports (changed in `ghost_night/tor.py` if they clash).
-- **Internet access** — to bootstrap Tor and load target sites; `install.sh` also downloads Playwright into the venv.
+- **Internet access** — to bootstrap Tor and load target sites; `install.sh` also downloads Playwright and curl_cffi into the venv.
 
 ## Install
 
