@@ -20,6 +20,8 @@ ghostnet turns one machine into many "devices" for testing how web applications 
 
 Built for **authorized pentesting**: rate-limit checks, trial/expiry controls, device- and IP-ban enforcement, anti-abuse logic.
 
+preview:https://drive.google.com/file/d/1VMZLD7_RlxjPKBVr9buRfhU_ZmayETO7/view?usp=sharing
+
 <img width="606" height="295" alt="image" src="https://github.com/user-attachments/assets/d85010bd-1176-45dc-9e67-8c88f912d2b3" />
 
 ## Demo
@@ -225,3 +227,45 @@ Workflow: fork → feature branch → PR. Keep the core dependency-light (stdlib
 ## Disclaimer
 
 Use ghostnet only against systems you are authorized to test. You are responsible for complying with applicable laws and each target's terms of service.
+
+## Responsible Use Policy
+
+GhostNet is developed for authorized penetration testing, security research, privacy testing, and defensive security education.
+
+This tool must only be used on systems, websites, and infrastructure that you own or have explicit permission to test.
+
+### Permitted Use
+
+Users may use GhostNet to:
+
+- Test security controls on systems they own or are authorized to assess.
+- Evaluate browser session isolation, cookie handling, and fingerprinting behavior.
+- Conduct authorized privacy and proxy connectivity tests.
+- Research defensive security mechanisms in controlled environments.
+- Identify weaknesses and improve website security.
+
+### Prohibited Activities
+
+Users must not use GhostNet to:
+
+- Bypass website security controls, anti-abuse mechanisms, rate limits, or fraud-prevention systems without explicit authorization.
+- Evade bans, access restrictions, or account limitations on third-party services.
+- Automate spam, harassment, fraud, credential attacks, or other abusive activities.
+- Access, disrupt, damage, or interfere with systems without authorization.
+- Conceal malicious activity or facilitate illegal actions.
+- Violate applicable laws, service agreements, or the rights of others.
+
+### User Responsibility
+
+Users are solely responsible for how they use, configure, and modify GhostNet. Having access to this tool does not grant permission to test any website or system.
+
+Always obtain authorization, define the scope of testing, follow applicable laws, and respect the security controls of the target system.
+
+### Security and Ethical Commitment
+
+GhostNet is intended to support responsible security research and defensive testing. Misuse is contrary to the project's intended purpose.
+
+If you discover a security vulnerability, report it responsibly to the affected system owner rather than exploiting it.
+
+**Use GhostNet responsibly. Test with permission. Protect others. Improve security.**
+
