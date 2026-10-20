@@ -175,6 +175,16 @@ PLUGINS = {
               ('Chromium PDF Viewer', 'internal-pdf-viewer', 'Portable Document Format')],
 }
 
+# Firefox's plugin set is genuinely different from Chrome's — reusing Chrome's
+# names on a Firefox UA is itself a tell. Modern Firefox reports only its
+# internal PDF viewer.
+FF_PLUGINS = {
+    'win': [('PDF.js', 'internal-pdf-viewer', 'Portable Document Format')],
+    'mac': [('PDF.js', 'internal-pdf-viewer', 'Portable Document Format')],
+    'linux': [('PDF.js', 'internal-pdf-viewer', 'Portable Document Format')],
+    'android': [('PDF.js', 'internal-pdf-viewer', 'Portable Document Format')],
+}
+
 NOISE = r"""
 (() => {
   const seed = __SEED__ >>> 0;
@@ -191,10 +201,9 @@ NOISE = r"""
   const defineFn = (obj, prop, fn) => {
     try { Object.defineProperty(obj, prop, { get: fn, configurable: true }); } catch (e) {}
   };
+  const ENGINE = '__ENGINE__';
   def(navigator, 'platform', '__PLATFORM__');
   def(navigator, 'hardwareConcurrency', __CORES__);
-  def(navigator, 'deviceMemory', __MEMORY__);
-  def(navigator, 'vendor', '__VENDOR_NS__');
   def(window, 'devicePixelRatio', __DPR__);
   const SW = __SW__, SH = __SH__, AVAIL_H = __AVAIL_H__;
   def(screen, 'width', SW);
@@ -214,35 +223,54 @@ NOISE = r"""
     delete Object.getPrototypeOf(navigator).webdriver;
   } catch (e) {}
   def(navigator, 'languages', ['__LOCALE__', '__LOCALE_BASE__']);
-  // window.chrome runtime shim (headless Chromium omits it)
-  if (!window.chrome) { window.chrome = {}; }
-  if (!window.chrome.runtime) {
-    window.chrome.runtime = {
-      connect: function () { return { onMessage: { addListener: function () {} },
-        postMessage: function () {}, disconnect: function () {} }; },
-      sendMessage: function () {}, id: undefined,
-    };
+  if (ENGINE === 'firefox') {
+    // Firefox-specific coherent surface:
+    //  - navigator.vendor is the empty string
+    //  - deviceMemory does NOT exist (leave it undefined)
+    //  - window.chrome does NOT exist (adding it is a Chrome tell)
+    //  - buildID / oscpu are Firefox-only fingerprintable props
+    def(navigator, 'vendor', '');
+    try { delete navigator.deviceMemory; } catch (e) {}
+    try { delete window.chrome; } catch (e) {}
+  } else {
+    def(navigator, 'vendor', '__VENDOR_NS__');
+    def(navigator, 'deviceMemory', __MEMORY__);
+    // window.chrome runtime shim (headless Chromium omits it)
+    if (!window.chrome) { window.chrome = {}; }
+    if (!window.chrome.runtime) {
+      window.chrome.runtime = {
+        connect: function () { return { onMessage: { addListener: function () {} },
+          postMessage: function () {}, disconnect: function () {} }; },
+        sendMessage: function () {}, id: undefined,
+      };
+    }
+    if (!window.chrome.app) { window.chrome.app = { isInstalled: false, InstallState: {}, RunningState: {} }; }
+    if (!window.chrome.csi) { window.chrome.csi = function () { return {}; }; }
+    if (!window.chrome.loadTimes) { window.chrome.loadTimes = function () { return {}; }; }
   }
-  if (!window.chrome.app) { window.chrome.app = { isInstalled: false, InstallState: {}, RunningState: {} }; }
-  if (!window.chrome.csi) { window.chrome.csi = function () { return {}; }; }
-  if (!window.chrome.loadTimes) { window.chrome.loadTimes = function () { return {}; }; }
 
-  // --- plugins (mimeType array consistent with the OS) ---
+  // --- plugins (mimeType array consistent with the OS/engine) ---
   const PLUGINS = __PLUGINS__;
   function mkPlugin(name, filename, desc) {
-    const p = Object.create(Plugin.prototype);
-    p.name = name; p.filename = filename; p.description = desc;
+    // Build plugin/mime as plain own-property objects. Using the native
+    // Plugin/MimeType prototypes makes their getters throw "Illegal
+    // invocation" when read on a non-native object; the array types still
+    // report [object PluginArray]/[object MimeTypeArray] below.
+    const defOwn = (o, k, v) => Object.defineProperty(o, k,
+      { value: v, writable: true, enumerable: true, configurable: true });
+    const p = {};
+    defOwn(p, 'name', name); defOwn(p, 'filename', filename); defOwn(p, 'description', desc);
     Object.defineProperty(p, Symbol.toStringTag, { value: 'Plugin', configurable: true });
-    const mime = Object.create(MimeType.prototype);
-    mime.type = 'application/pdf';
-    mime.suffixes = 'pdf';
-    mime.description = desc;
-    mime.enabledPlugin = p;
+    const mime = {};
+    defOwn(mime, 'type', 'application/pdf');
+    defOwn(mime, 'suffixes', 'pdf');
+    defOwn(mime, 'description', desc);
+    defOwn(mime, 'enabledPlugin', p);
     Object.defineProperty(mime, Symbol.toStringTag, { value: 'MimeType', configurable: true });
-    p.length = 1;
-    p[0] = mime;
-    p.item = (i) => (i === 0 ? mime : null);
-    p.namedItem = (t) => (t === mime.type ? mime : null);
+    defOwn(p, 'length', 1);
+    defOwn(p, '0', mime);
+    defOwn(p, 'item', (i) => (i === 0 ? mime : null));
+    defOwn(p, 'namedItem', (t) => (t === mime.type ? mime : null));
     return { plugin: p, mimes: [mime] };
   }
   function buildPlugins() {
@@ -251,23 +279,35 @@ NOISE = r"""
       const { plugin, mimes } = mkPlugin(n, f, d);
       arr.push(plugin); mime.push(...mimes);
     }
+    const arrProto = Object.create(PluginArray.prototype);
     const mimeSet = Object.create(MimeTypeArray.prototype);
     mime.forEach((m, i) => { mimeSet[i] = m; });
     Object.defineProperty(mimeSet, 'length', { value: mime.length, enumerable: false });
     mimeSet.item = (i) => mime[i] || null;
     mimeSet.namedItem = (t) => mime.find((m) => m.type === t) || null;
-    const pluginSet = Object.create(PluginArray.prototype);
-    arr.forEach((p, i) => { pluginSet[i] = p; });
-    Object.defineProperty(pluginSet, 'length', { value: arr.length, enumerable: false });
-    pluginSet.item = (i) => arr[i] || null;
-    pluginSet.namedItem = (n) => arr.find((p) => p.name === n) || null;
-    pluginSet.refresh = () => {};
-    return { plugins: pluginSet, mimeTypes: mimeSet };
+    arr.forEach((p, i) => { arrProto[i] = p; });
+    Object.defineProperty(arrProto, 'length', { value: arr.length, enumerable: false });
+    arrProto.item = (i) => arr[i] || null;
+    arrProto.namedItem = (n) => arr.find((p) => p.name === n) || null;
+    arrProto.refresh = () => {};
+    if (ENGINE === 'firefox') {
+      Object.defineProperty(arrProto, Symbol.iterator, { value: function () {
+        let i = 0; const items = arr;
+        return { next: () => (i < items.length ? { value: items[i++], done: false }
+          : { value: undefined, done: true }) };
+      }, configurable: true });
+      Object.defineProperty(mimeSet, Symbol.iterator, { value: function () {
+        let i = 0; const items = mime;
+        return { next: () => (i < items.length ? { value: items[i++], done: false }
+          : { value: undefined, done: true }) };
+      }, configurable: true });
+    }
+    return { plugins: arrProto, mimeTypes: mimeSet };
   }
   const P = buildPlugins();
   def(navigator, 'plugins', P.plugins);
   def(navigator, 'mimeTypes', P.mimeTypes);
-  def(navigator, 'pdfViewerEnabled', true);
+  if (ENGINE !== 'firefox') { def(navigator, 'pdfViewerEnabled', true); }
 
   // --- permissions: notifications default must be 'prompt' not 'denied' ---
   if (navigator.permissions && navigator.permissions.query) {
@@ -490,7 +530,9 @@ def _wgpu_info(profile):
 
 def _script(profile, seed, version, channel):
     s = NOISE
+    is_ff = channel == 'firefox'
     s = s.replace('__SEED__', str(seed))
+    s = s.replace('__ENGINE__', 'firefox' if is_ff else 'chrome')
     s = s.replace('__PLATFORM__', UA_OS[profile['os']][1])
     s = s.replace('__CORES__', str(profile['cores']))
     s = s.replace('__MEMORY__', str(profile['memory']))
@@ -506,7 +548,8 @@ def _script(profile, seed, version, channel):
     s = s.replace('__LOCALE_BASE__', profile['locale'].split('-')[0])
     s = s.replace('__FONTS__', json.dumps(FONTS[profile['os']]))
     s = s.replace('__HOST_ONLY__', json.dumps(_host_only_fonts(profile)))
-    s = s.replace('__PLUGINS__', json.dumps(PLUGINS[profile['os']]))
+    plug = (FF_PLUGINS if is_ff else PLUGINS)[profile['os']]
+    s = s.replace('__PLUGINS__', json.dumps(plug))
     wv, wa = _wgpu_info(profile)
     s = s.replace('__WGPU_VENDOR__', wv)
     s = s.replace('__WGPU_ARCH__', wa)
