@@ -190,7 +190,9 @@ def _run_session_loop(args, once=False):
         state['last'] = time.time()
         ip = tor.get_ip()[0] if args.transport == 'tor' else None
         _save_state(sid=meta['sid'], target=args.target, since=state['last'], proxy=proxy,
-                    reason=reason, ip=ip, transport=args.transport)
+                    reason=reason, ip=ip, transport=args.transport,
+                    viewport=meta['viewport'], tz=meta['tz'], platform=meta['platform'],
+                    locale=meta.get('locale', '-'))
         event('rotate', reason=reason, sid=meta['sid'], target=args.target, ip=ip,
               viewport=meta['viewport'], tz=meta['tz'], platform=meta['platform'])
         ui.session_line(meta)
@@ -258,10 +260,45 @@ def _run_session_loop(args, once=False):
         _save_state(sid=None, since=None)
 
 
+def _wait_state_change(prev_since, timeout, label):
+    """Spin until state.json shows a session newer than prev_since (or timeout)."""
+    ui.info(label)
+    start = time.time()
+    while time.time() - start < timeout:
+        try:
+            st = json.loads(STATE.read_text())
+        except (FileNotFoundError, json.JSONDecodeError):
+            st = {}
+        since = st.get('since')
+        if st.get('sid') and since and since != prev_since:
+            el = f'{time.time() - start:.0f}s'
+            ui.session_line({'sid': st['sid'],
+                             'platform': st.get('platform') or '-',
+                             'viewport': st.get('viewport') or '-',
+                             'tz': st.get('tz') or '-',
+                             'locale': st.get('locale') or '-'})
+            if st.get('ip'):
+                ui.ip_line(st['ip'])
+            ui.ok(f'ready in {el}')
+            return True
+        time.sleep(1)
+        dots = '.' * (1 + int(time.time() - start) % 3)
+        print(f'  {ui.c(ui.DIM, "working" + dots + " " * (4 - len(dots)))}', end='\r', flush=True)
+    print()
+    ui.warn(f'still not ready after {timeout}s — check: gn status')
+    return False
+
+
 def cmd_go(args):
     if not args.target.startswith(('http://', 'https://', 'file://')):
         sys.exit('error: target must be a full URL (https://...)')
     if args.detach and not os.environ.get('GHOSTNET_DETACH'):
+        prev = {}
+        if STATE.exists():
+            try:
+                prev = json.loads(STATE.read_text())
+            except (FileNotFoundError, json.JSONDecodeError):
+                prev = {}
         log = open(CONF / 'gn.log', 'a')
         child_argv = [a for a in sys.argv[1:] if a != '--detach']
         env = dict(os.environ, GHOSTNET_DETACH='1')
@@ -273,8 +310,9 @@ def cmd_go(args):
         log.close()
         ui.banner()
         ui.step(f'{ui.c(ui.BOLD, args.target)}   ' + ui.c(ui.DIM, f'transport={args.transport}'))
-        ui.ok(f'session loop detached — pid {p.pid}')
-        ui.info('control it from any terminal:  gn new (rotate) · gn status · gn off (stop)')
+        ui.info(f'background session starting (pid {p.pid})')
+        _wait_state_change(prev.get('since'), 180, 'opening browser through tor')
+        ui.info('control from any terminal:  gn new (rotate) · gn status · gn off (stop)')
         ui.info(f'logs: tail -f {CONF / "gn.log"}')
         return
     ui.banner()
@@ -303,9 +341,15 @@ def cmd_new(args):
         except (ValueError, ProcessLookupError, PermissionError):
             pid = None
         if pid:
+            prev_since = None
+            if STATE.exists():
+                try:
+                    prev_since = json.loads(STATE.read_text()).get('since')
+                except (FileNotFoundError, json.JSONDecodeError):
+                    prev_since = None
             os.kill(pid, signal.SIGUSR1)
-            ui.info(f'sent rotate request to running session loop (pid {pid}) — new identity coming up')
-            ui.info("follow it with: gn status")
+            _wait_state_change(prev_since, 120, 'rotating to a new identity')
+            ui.info('done — run "gn status" any time to see the current session')
             return
         GN_PID.unlink(missing_ok=True)
     st = json.loads(STATE.read_text()) if STATE.exists() else {}
@@ -324,7 +368,9 @@ def cmd_new(args):
     meta = _open_with_retry(mgr, args)
     ip = tor.get_ip()[0] if args.transport == 'tor' else None
     _save_state(sid=meta['sid'], target=target, since=time.time(), proxy=proxy,
-                reason='manual', ip=ip, transport=args.transport)
+                reason='manual', ip=ip, transport=args.transport,
+                viewport=meta['viewport'], tz=meta['tz'], platform=meta['platform'],
+                locale=meta.get('locale', '-'))
     event('rotate', reason='manual', sid=meta['sid'], target=target, ip=ip,
           viewport=meta['viewport'], tz=meta['tz'], platform=meta['platform'])
     ui.step('new user on ' + ui.c(ui.BOLD, target))
