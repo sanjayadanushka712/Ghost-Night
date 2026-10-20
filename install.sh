@@ -31,6 +31,10 @@ fi
   echo ".. installing playwright"
   "$VENV/bin/pip" install --quiet playwright
 }
+"$VENV/bin/python" -c "import curl_cffi" 2>/dev/null || {
+  echo ".. installing curl_cffi (raw HTTP mode TLS impersonation)"
+  "$VENV/bin/pip" install --quiet curl_cffi
+}
 
 BIN_DIR="$HOME/.local/bin"
 mkdir -p "$BIN_DIR"

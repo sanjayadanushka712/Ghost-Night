@@ -11,6 +11,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from . import bridges, proxies, session, tor, ui
+from . import http_client
 from .log import event, tail
 
 CONF = Path.home() / '.config' / 'ghost_night'
@@ -579,6 +580,10 @@ def cmd_doctor(args):
     add('chrome', bool(chrome), chrome or 'not found — install google-chrome/chromium')
     ff = session._playwright_firefox_bin()
     add('firefox', bool(ff), ff or 'not installed — run: python -m playwright install firefox')
+    # raw HTTP mode
+    add('curl_cffi', http_client._HAVE_CFFI,
+        'installed (raw HTTP TLS impersonation)' if http_client._HAVE_CFFI
+        else 'missing (optional) — pip install curl_cffi for gn fetch')
     # venv python
     venv = Path.home() / '.local' / 'share' / 'ghost_night' / 'venv' / 'bin' / 'python'
     add('venv', venv.exists(), str(venv) if venv.exists() else 'missing — re-run install.sh')
@@ -687,10 +692,125 @@ def cmd_off(args):
     )
 
 
+def _resolve_route(args):
+    """Turn --transport/--proxy/--proxy-pool into (proxy_url, country)."""
+    transport = getattr(args, 'transport', 'direct') or 'direct'
+    if transport == 'direct':
+        return None, None
+    if transport == 'proxy':
+        pool = getattr(args, 'proxy_pool', None)
+        country = None
+        if pool:
+            try:
+                url, country = proxies.pick(pool)
+            except RuntimeError as e:
+                sys.exit(f'error: {e}')
+            return url, country
+        if not args.proxy:
+            sys.exit('error: --transport proxy requires --proxy URL (e.g. socks5://127.0.0.1:1080)')
+        return args.proxy, None
+    if transport == 'obfs4':
+        bl = bridges.load()
+        if not bl:
+            ui.info('no bridges yet — requesting obfs4 bridges from torproject.org')
+            try:
+                bl = bridges.fetch_interactive()
+            except (RuntimeError, OSError, ValueError) as e:
+                sys.exit(f'error: {e}')
+        tor.start(obfs4=True, bridges=bl)
+        return tor.socks_proxy(), None
+    tor.start()
+    return tor.socks_proxy(), None
+
+
+def _engine_for(args):
+    if getattr(args, 'firefox', False):
+        return 'firefox'
+    if getattr(args, 'safari', False):
+        return 'safari'
+    return 'chrome'
+
+
+def cmd_fetch(args):
+    if not http_client._HAVE_CFFI:
+        sys.exit('error: curl_cffi not installed — run: '
+                 f'{Path.home()}/.local/share/ghost_night/venv/bin/pip install curl_cffi')
+    proxy, country = _resolve_route(args)
+    engine = _engine_for(args)
+    extra = None
+    if args.header:
+        extra = {}
+        for h in args.header:
+            if ':' not in h:
+                sys.exit(f'error: bad --header (want "Name: value"): {h}')
+            k, v = h.split(':', 1)
+            extra[k.strip()] = v.strip()
+    cookie_file = args.cookie_jar or None
+    json_body = json.loads(args.json_body) if args.json_body else None
+    try:
+        out = http_client.fetch(
+            args.url, method=args.method.upper(), engine=engine, proxy=proxy,
+            geo_country=country, data=args.data, json_body=json_body,
+            extra_headers=extra, cookie_file=cookie_file, timeout=args.timeout)
+    except Exception as e:
+        sys.exit(f'error: request failed: {type(e).__name__}: {e}')
+
+    if args.json:
+        print(json.dumps(out, indent=2))
+        return
+    ident = out['identity']
+    ui.step(f"{out['request']['method']} {out['request']['url']}")
+    ui.info(f"route    {ident['impersonate']}  ({'proxy ' + proxy if proxy else 'direct'})")
+    ui.info(f"identity {ident['platform']} · {ident['locale']} · {ident['tz']}")
+    ui.info(f"tls      {ident['engine']} impersonation — UA↔JA3 coherent")
+    code = out['status']
+    color_ok = 200 <= code < 400
+    line = f"{code} {out['reason']}  ·  {out['elapsed_ms']}ms  ·  {len(out['body'])} bytes"
+    (ui.ok if color_ok else ui.warn)(line)
+    print()
+    for k, v in out['headers'].items():
+        print(f"  {ui.dim(k)}: {v}")
+    if args.show_body:
+        print()
+        print(out['body'][:args.max_body])
+
+
+def cmd_probe(args):
+    if not http_client._HAVE_CFFI:
+        sys.exit('error: curl_cffi not installed')
+    proxy, country = _resolve_route(args)
+    engine = _engine_for(args)
+    try:
+        out, parsed = http_client.probe(engine=engine, proxy=proxy, geo_country=country)
+    except Exception as e:
+        sys.exit(f'error: probe failed: {type(e).__name__}: {e}')
+    ident = out['identity']
+    if args.json:
+        print(json.dumps({'identity': ident, 'seen': parsed}, indent=2))
+        return
+    ui.step('TLS/HTTP fingerprint probe')
+    ui.info(f"route    {ident['impersonate']}  ({'proxy ' + proxy if proxy else 'direct'})")
+    ui.info(f"identity {ident['platform']} · {ident['locale']} · {ident['tz']}")
+    if parsed:
+        ja3 = parsed.get('tls', {}).get('ja3_hash') or parsed.get('ja3_hash')
+        ja4 = parsed.get('tls', {}).get('ja4') or parsed.get('ja4')
+        ua_hdr = (parsed.get('headers') or {}).get('user-agent')
+        ui.ok(f"JA3  {ja3}")
+        ui.ok(f"JA4  {ja4}")
+        if ua_hdr:
+            ui.info(f"UA   {ua_hdr}")
+        peer = parsed.get('tls', {}).get('ja3')
+        if peer:
+            print(f"  ja3 raw: {peer}")
+    else:
+        ui.warn('could not parse probe response')
+        print(out['body'][:1000])
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(
         prog='gn',
-        description='ghost_night — browser fingerprint & identity rotation toolkit: fresh IP + fresh coherent fingerprint per session',
+        description='Ghost Night — browser fingerprint & identity rotation toolkit: fresh IP + fresh coherent fingerprint per session (browser and raw-HTTP modes)',
     )
     sub = p.add_subparsers(dest='cmd', required=True)
 
@@ -748,6 +868,35 @@ def main(argv=None):
     tst.add_argument('--firefox-only', action='store_true')
     tst.add_argument('--json', action='store_true', help='machine-readable output')
     tst.set_defaults(func=cmd_test)
+
+    ft = sub.add_parser('fetch', help='raw HTTP request (no browser) with a coherent TLS/UA identity')
+    ft.add_argument('url', help='target URL')
+    ft.add_argument('-X', '--method', default='GET', help='HTTP method (default GET)')
+    ft.add_argument('--transport', choices=['tor', 'obfs4', 'proxy', 'direct'], default='direct',
+                    help='route for the request (default: direct)')
+    ft.add_argument('--proxy', help='proxy URL for --transport proxy')
+    ft.add_argument('--proxy-pool', help='file of proxy URLs to pick from')
+    ft.add_argument('--firefox', action='store_true', help='impersonate Firefox TLS/UA')
+    ft.add_argument('--safari', action='store_true', help='impersonate Safari TLS/UA')
+    ft.add_argument('-H', '--header', action='append', metavar='NAME:VALUE',
+                    help='extra request header (repeatable)')
+    ft.add_argument('-d', '--data', help='request body (form-encoded / raw)')
+    ft.add_argument('--json-body', help='request body as JSON string')
+    ft.add_argument('--cookie-jar', help='file to persist cookies across calls (one session)')
+    ft.add_argument('--timeout', type=int, default=30)
+    ft.add_argument('--show-body', action='store_true', help='print response body')
+    ft.add_argument('--max-body', type=int, default=2000, help='body bytes to print with --show-body')
+    ft.add_argument('--json', action='store_true', help='machine-readable output')
+    ft.set_defaults(func=cmd_fetch)
+
+    pr = sub.add_parser('probe', help='show the TLS/JA3 + HTTP2 fingerprint a server sees for a raw request')
+    pr.add_argument('--transport', choices=['tor', 'obfs4', 'proxy', 'direct'], default='direct')
+    pr.add_argument('--proxy', help='proxy URL for --transport proxy')
+    pr.add_argument('--proxy-pool', help='file of proxy URLs to pick from')
+    pr.add_argument('--firefox', action='store_true')
+    pr.add_argument('--safari', action='store_true')
+    pr.add_argument('--json', action='store_true')
+    pr.set_defaults(func=cmd_probe)
 
     args = p.parse_args(argv)
     try:

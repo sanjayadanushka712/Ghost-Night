@@ -65,8 +65,9 @@ Built for **authorized pentesting**: rate-limit checks, trial/expiry controls, d
 | `curl` | checks real IP vs Tor exit IP | `gn verify`, exit-IP checks |
 | Chrome or Chromium | the browser each session runs in (Firefox via `--firefox`) | sessions |
 | `python-playwright` | drives the browser, injects per-session fingerprint | sessions — **installed automatically** into a private venv by `install.sh` |
+| `python-curl_cffi` (optional) | raw HTTP mode — real browser TLS/HTTP2 (JA3/JA4) impersonation, no browser | `gn fetch`, `gn probe` — installed automatically by `install.sh` |
 
-Only **`tor` and `curl`** must be installed manually. Playwright is fetched into `~/.local/share/ghost_night/venv` by the installer — no system Python changes.
+Only **`tor` and `curl`** must be installed manually. Playwright and curl_cffi are fetched into `~/.local/share/ghost_night/venv` by the installer — no system Python changes.
 
 Manual install if you don't use `install.sh`:
 
@@ -122,6 +123,8 @@ gn status                       # tor, current session, recent events
 gn verify                       # check tor (real ip vs exit ip)
 gn doctor                       # diagnose env: deps, browsers, bridges, venv
 gn test                         # self-check: launch each engine/transport and score fingerprinting
+gn fetch URL                    # raw HTTP request (no browser) with a coherent TLS/UA identity
+gn probe                        # show the JA3/JA4 + HTTP2 fingerprint a server sees
 gn off                          # stop everything, clean up
 ```
 
@@ -172,6 +175,10 @@ gn go URL --behavioral                       # alias for --human deep
 gn go URL --firefox                          # real Firefox identity (not Chrome in disguise)
 gn go URL --firefox --headless --keep-profiles
 gn new --target https://other-site.com       # switch sites
+gn fetch https://api.example.com --json      # raw request, no browser; coherent TLS/UA
+gn fetch URL --transport tor -X POST --json-body '{"a":1}' -H 'X-Api-Key: ...'
+gn fetch URL --firefox --cookie-jar ~/.config/ghost_night/cj.txt   # persist cookies + identity across calls
+gn probe --json                              # what JA3/JA4/UA the server sees for a raw request
 gn status --json                             # machine-readable state (also verify/doctor/test)
 gn test --transport tor,obfs4,direct         # self-check fingerprinting across engines/transports
 ```
@@ -209,6 +216,7 @@ gn test --transport tor,obfs4,direct         # self-check fingerprinting across 
 - **`gn test`** — self-check that launches each engine × transport and scores fingerprinting on bot.sannysoft.com, printing a pass/fail report
 - **Behavioral engine** (`--human deep` / `--behavioral`) — models motor control and reading instead of flat randomness: Fitts's-law targeting (move time scales with distance ÷ target size), ballistic overshoot + micro-correction, scroll momentum (accelerate → cruise → decelerate), reading dwell proportional to content density, occasional clicks on real elements, and idle micro-drift — all paced with slight fatigue over the session
 - **`--json` mode** — `status`, `verify`, `doctor`, and `test` emit machine-readable JSON for scripting/CI
+- **Raw HTTP mode** — `gn fetch URL` sends requests **with no browser at all**, carrying a coherent identity at the network layer: the TLS ClientHello (JA3/JA4), HTTP/2 settings, header order, and User-Agent all describe one real browser on one machine. TLS-first design (curl_cffi impersonation picks the fingerprint, then OS/locale/tz/UA are derived to match), so the UA never disagrees with the JA3. Routes through `--transport tor/obfs4/proxy/direct`, supports `-X`, `-H`, `-d`, `--json-body`, `--json`, and `--cookie-jar` (which also pins the identity so cookies *and* browser stay stable across calls). `gn probe` shows the JA3/JA4 + HTTP2 fingerprint a server actually sees. **Honest scope:** this shapes only what the server sees at L7/TLS — it announces no JS `navigator` surface at all (there is no JS engine), which is itself a signal on script-dependent sites; use the browser path for those.
 - Renamed project to **Ghost Night** (was ghostnet)
 
 ### v1.2.0
