@@ -512,7 +512,7 @@ def cmd_off(args):
 def main(argv=None):
     p = argparse.ArgumentParser(
         prog='gn',
-        description='ghost_night — anonymous device rotation: fresh IP + fresh browser fingerprint per session',
+        description='ghost_night — browser fingerprint & identity rotation toolkit: fresh IP + fresh coherent fingerprint per session',
     )
     sub = p.add_subparsers(dest='cmd', required=True)
 

@@ -3,7 +3,7 @@
 <p align="center"><img src="assets/GhostNight.png" width="180" alt="Ghost Night logo"></p>
 
 <p align="center">
-  <b>Anonymous device rotation for web application pentesting</b><br>
+  <b>Browser Fingerprint &amp; Identity Rotation Toolkit</b><br>
   fresh IP · fresh browser fingerprint · fresh session — on demand
 </p>
 
@@ -16,7 +16,7 @@
 
 ---
 
-Ghost Night turns one machine into many "devices" for testing how web applications track, rate-limit, and ban users. Each session gets a fresh browser profile (cookies, storage, fingerprint) and — optionally — a fresh public IP via Tor or your own proxy. When a session hits a limit, `gn new` continues as a brand-new user on the same site.
+**Ghost Night** is a **Browser Fingerprint & Identity Rotation Toolkit** for authorized security testing. It turns one machine into many "devices" for testing how web applications track, rate-limit, and ban users — each session gets a fresh coherent browser profile and, optionally, a fresh public IP via Tor, obfs4, or your own proxy. When a session hits a limit, `gn new` continues as a brand-new user on the same site.
 
 Built for **authorized pentesting**: rate-limit checks, trial/expiry controls, device- and IP-ban enforcement, anti-abuse logic.
 
