@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630" role="img">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#04070c"/>
+      <stop offset="100%" stop-color="#0a0508"/>
+    </linearGradient>
+    <linearGradient id="neon" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#00ffa3"/>
+      <stop offset="50%" stop-color="#00e5ff"/>
+      <stop offset="100%" stop-color="#ff2d55"/>
+    </linearGradient>
+    <linearGradient id="steel" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#16222f"/>
+      <stop offset="100%" stop-color="#04070b"/>
+    </linearGradient>
+    <radialGradient id="aura" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#00e5ff" stop-opacity="0.18"/>
+      <stop offset="100%" stop-color="#00e5ff" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="4" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="drop" x="-40%" y="-40%" width="180%" height="180%">
+      <feDropShadow dx="0" dy="12" stdDeviation="16" flood-color="#000000" flood-opacity="0.9"/>
+    </filter>
+  </defs>
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <circle cx="320" cy="320" r="280" fill="url(#aura)"/>
+  
+  <!-- Ghost whale -->
+  <g transform="translate(180,260)" filter="url(#drop)">
+    <g>
+      <animateTransform attributeName="transform" type="translate" values="0,0; 6,-4; 0,0" dur="8s" repeatCount="indefinite"/>
+      <path d="M18 84 C30 48 78 24 146 20 C222 16 290 36 342 48 C366 42 394 46 410 64 C394 72 380 80 370 88 C358 118 320 144 246 154 C152 164 64 148 30 110 Z" 
+            fill="url(#steel)" stroke="url(#neon)" stroke-width="3"/>
+      <path d="M146 28 L168 -26 L214 26 Z" fill="#0a121c" stroke="#00e5ff" stroke-width="2.5"/>
+      <path d="M6 86 C-38 58 -70 44 -102 34 C-66 54 -44 72 -28 84 C-46 86 -70 90 -98 98 C-66 94 -42 92 -26 90 C-42 106 -68 122 -98 138 C-62 118 -38 102 -8 92 Z" 
+            fill="#0a121c" stroke="#ff2d55" stroke-width="2.5">
+        <animateTransform attributeName="transform" type="rotate" values="-3 6 88; 3 6 88; -3 6 88" dur="1.4s" repeatCount="indefinite"/>
+      </path>
+      <g stroke="#ff2d55" stroke-width="2.2" opacity="0.9">
+        <line x1="114" y1="58" x2="108" y2="116"/>
+        <line x1="132" y1="56" x2="126" y2="118"/>
+        <line x1="150" y1="54" x2="144" y2="118"/>
+      </g>
+      <g transform="translate(346,76)">
+        <ellipse rx="18" ry="7.5" fill="#04070b" stroke="#ff2d55" stroke-width="2"/>
+        <circle cx="3.5" cy="0" r="4" fill="#ff2d55" filter="url(#glow)">
+          <animate attributeName="r" values="4;5;4" dur="1.8s" repeatCount="indefinite"/>
+        </circle>
+        <path d="M-20 -14 L18 -4" stroke="url(#neon)" stroke-width="3"/>
+      </g>
+    </g>
+  </g>
+  
+  <!-- Title -->
+  <g font-family="'JetBrains Mono',monospace">
+    <text x="620" y="240" font-size="84" font-weight="800" fill="#f4f9ff" filter="url(#glow)">GHOST NIGHT</text>
+    <rect x="624" y="260" width="520" height="6" rx="3" fill="url(#neon)"/>
+    <text x="624" y="310" font-size="28" font-weight="700" fill="url(#neon)">Browser Fingerprint and Identity Rotation Toolkit</text>
+    <text x="624" y="350" font-size="19" fill="#9fb4c7">Tor  |  obfs4  |  Proxy Pools  |  Coherent Fingerprints</text>
+    <text x="624" y="430" font-size="17" fill="#6f8296">github.com/sanjayadanushka712/Ghost-Night</text>
+  </g>
+  
+  <!-- HUD corner -->
+  <g stroke="#00ffa3" stroke-width="2.5" fill="none" opacity="0.7">
+    <path d="M40 40 L100 40 M40 40 L40 100"/>
+    <path d="M1160 590 L1100 590 M1160 590 L1160 530"/>
+  </g>
+  <rect x="0" y="0" width="1200" height="630" fill="none" stroke="url(#neon)" stroke-width="3" opacity="0.3"/>
+</svg>
